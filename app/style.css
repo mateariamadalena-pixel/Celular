@@ -108,3 +108,4 @@ dialog button { background: var(--accent); border: 0; border-radius: 8px; paddin
 #pLista .nota { color: var(--muted); font-size: 13px; }
 .atrasado { color: #f87171; }
 .adiantado { color: #4ade80; }
+.sem-conf { color: var(--muted); font-style: italic; }

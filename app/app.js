@@ -421,8 +421,9 @@ function htmlChegada(v) {
   const noMapa = v.hex && marcadores.has(v.hex);
   return `<li${noMapa ? ` data-id="${escapar(v.hex)}" class="no-mapa"` : ''}>
     <div class="cab"><strong>${escapar(v.numero)}</strong> <span>${escapar(v.companhia)}</span>
-      <span class="hora">${v.pousou ? `pousou ${escapar(v.pousou)}` : escapar(v.status)}</span></div>
-    <div class="sub">de ${escapar(origem)}${v.previsto ? ` · previsto ${escapar(v.previsto)}` : ''} · ${textoAtraso(v.atrasoMin)}</div>
+      <span class="hora">${v.pousou ? `pousou ${escapar(v.pousou)}` : `previsto ${escapar(v.previsto)}`}</span></div>
+    <div class="sub">de ${escapar(origem)}${v.pousou && v.previsto ? ` · previsto ${escapar(v.previsto)}` : ''}${
+      v.pousou ? ` · ${textoAtraso(v.atrasoMin)}` : (v.confirmado ? '' : ' · <span class="sem-conf">pouso não confirmado</span>')}</div>
     ${aviao ? `<div class="sub">${escapar(aviao)}${noMapa ? ' · <b>ver no mapa ›</b>' : ''}</div>` : ''}
   </li>`;
 }
