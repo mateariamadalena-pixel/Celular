@@ -73,10 +73,26 @@ function lerReadsb(json) {
 
 const raioEmNm = raioKm => Math.min(250, Math.max(1, Math.ceil(raioKm / 1.852)));
 
+// Intermediário no próprio site (api/voos.js, publicado na Vercel). Ele existe porque o navegador
+// do celular bloqueia chamadas diretas às APIs (CORS). Onde não existe (ex.: GitHub Pages),
+// o app volta a chamar as fontes diretamente.
+const URL_INTERMEDIARIO = '/api/voos';
+let intermediarioExiste = true;
+
+async function baixar(url) {
+  const opcoes = AbortSignal.timeout ? { signal: AbortSignal.timeout(10000) } : {};
+  if (intermediarioExiste) {
+    const r = await fetch(`${URL_INTERMEDIARIO}?url=${encodeURIComponent(url)}`, opcoes);
+    if (r.headers.get('X-Intermediario')) return r;
+    intermediarioExiste = false;
+  }
+  return fetch(url, opcoes);
+}
+
 async function buscarJson(nome, url) {
   let r;
   try {
-    r = await fetch(url, AbortSignal.timeout ? { signal: AbortSignal.timeout(10000) } : {});
+    r = await baixar(url);
   } catch (e) {
     // No navegador, "Failed to fetch"/"Load failed" quase sempre é bloqueio de CORS ou falta de rede.
     throw new Error(`${nome}: sem resposta (${e.name === 'TimeoutError' ? 'demorou demais' : e.message})`);
