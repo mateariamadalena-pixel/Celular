@@ -67,7 +67,7 @@ companhia e voo ("LATAM · TAM3054"), modelo ("Airbus A320"), altitude, distânc
 - Botão para centralizar na sua localização
 - Instalável na tela inicial (manifest + service worker)
 
-### Por que existe o `api/voos.js` (intermediário)
+### Por que existe o `app/api/voos.js` (intermediário)
 
 O navegador do celular bloqueia chamadas diretas às APIs de ADS-B (CORS: no iPhone aparece
 "Load failed"). Por isso o app pede os dados a `/api/voos`, uma função que roda no servidor da
@@ -80,7 +80,9 @@ fontes diretamente (e pode não funcionar).
 1. Entre em https://vercel.com/signup com a conta do GitHub.
 2. **Add New… → Project**, escolha o repositório **Celular** e clique em **Import**.
 3. Não mude nada (sem framework, sem build) e clique em **Deploy**.
-4. O app fica em `https://<nome-do-projeto>.vercel.app/app/`. Cada mudança no `main` atualiza o site.
+4. O app fica em `https://<nome-do-projeto>.vercel.app/` se a pasta raiz (Root Directory) for `app`,
+   ou em `https://<nome-do-projeto>.vercel.app/app/` se for a raiz do repositório. O intermediário
+   funciona nos dois casos. Cada mudança no `main` atualiza o site.
 
 ### Como usar no celular
 
