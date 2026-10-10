@@ -32,8 +32,13 @@ inicial como se fosse um app, sem precisar de loja ou de compilar nada.
 
 | Fonte | Custo | Observações |
 |-------|-------|-------------|
-| [adsb.lol](https://api.adsb.lol) (padrão) | Grátis, sem cadastro | Rede comunitária, dados abertos (ODbL) |
+| [adsb.lol](https://api.adsb.lol) | Grátis, sem cadastro | Rede comunitária, dados abertos (ODbL) |
+| [airplanes.live](https://airplanes.live/api-guide/) | Grátis, sem cadastro | Rede comunitária, uso não comercial |
+| [adsb.fi](https://github.com/adsbfi/opendata) | Grátis, sem cadastro | Rede comunitária, uso não comercial |
 | [OpenSky Network](https://opensky-network.org) | Grátis para uso não comercial | Uso anônimo tem limite diário de consultas |
+
+No modo **Automático** (padrão), o app tenta as fontes nessa ordem e fica com a primeira que
+responder. Se todas falharem, o erro de cada uma aparece no canto superior esquerdo.
 
 O Flightradar24 também tem API, mas ela é paga.
 
