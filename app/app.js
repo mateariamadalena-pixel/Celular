@@ -50,29 +50,58 @@ const MODELOS = {
 // --- Fontes de dados -------------------------------------------------------
 // Cada fonte recebe uma área circular { lat, lon, raioKm } e devolve uma lista "normalizada".
 
+// adsb.lol, airplanes.live e adsb.fi usam o mesmo formato (o do programa "readsb").
+function lerReadsb(json) {
+  const ac = json.ac || json.aircraft || [];
+  return ac.filter(a => a.lat != null && a.lon != null).map(a => ({
+    id: a.hex,
+    callsign: (a.flight || '').trim(),
+    lat: a.lat,
+    lon: a.lon,
+    noSolo: a.alt_baro === 'ground',
+    altitudeM: typeof a.alt_baro === 'number' ? a.alt_baro * FT_PARA_M : null,
+    velocidadeKmh: a.gs != null ? a.gs * KT_PARA_KMH : null,
+    rumo: a.track ?? a.true_heading ?? 0,
+    subidaMs: a.baro_rate != null ? a.baro_rate * FT_PARA_M / 60 : null,
+    matricula: a.r || '',
+    modelo: a.t || '',
+    pais: '',
+    squawk: a.squawk || '',
+    emergencia: EMERGENCIAS_ADSB[a.emergency] || SQUAWKS_EMERGENCIA[a.squawk] || '',
+  }));
+}
+
+const raioEmNm = raioKm => Math.min(250, Math.max(1, Math.ceil(raioKm / 1.852)));
+
+async function buscarJson(nome, url) {
+  let r;
+  try {
+    r = await fetch(url, AbortSignal.timeout ? { signal: AbortSignal.timeout(10000) } : {});
+  } catch (e) {
+    // No navegador, "Failed to fetch"/"Load failed" quase sempre é bloqueio de CORS ou falta de rede.
+    throw new Error(`${nome}: sem resposta (${e.name === 'TimeoutError' ? 'demorou demais' : e.message})`);
+  }
+  if (!r.ok) throw new Error(`${nome}: HTTP ${r.status}`);
+  return r.json();
+}
+
+const fixo = n => n.toFixed(4);
+
 const FONTES = {
-  // adsb.lol: rede comunitária, gratuita, sem chave. Consulta por raio (milhas náuticas, máx. 250).
+  // Redes comunitárias, gratuitas e sem chave. Consulta por raio (milhas náuticas, máx. 250).
   async adsblol({ lat, lon, raioKm }) {
-    const raioNm = Math.min(250, Math.max(1, Math.ceil(raioKm / 1.852)));
-    const r = await fetch(`https://api.adsb.lol/v2/point/${lat.toFixed(4)}/${lon.toFixed(4)}/${raioNm}`);
-    if (!r.ok) throw new Error(`adsb.lol HTTP ${r.status}`);
-    const { ac = [] } = await r.json();
-    return ac.filter(a => a.lat != null && a.lon != null).map(a => ({
-      id: a.hex,
-      callsign: (a.flight || '').trim(),
-      lat: a.lat,
-      lon: a.lon,
-      noSolo: a.alt_baro === 'ground',
-      altitudeM: typeof a.alt_baro === 'number' ? a.alt_baro * FT_PARA_M : null,
-      velocidadeKmh: a.gs != null ? a.gs * KT_PARA_KMH : null,
-      rumo: a.track ?? a.true_heading ?? 0,
-      subidaMs: a.baro_rate != null ? a.baro_rate * FT_PARA_M / 60 : null,
-      matricula: a.r || '',
-      modelo: a.t || '',
-      pais: '',
-      squawk: a.squawk || '',
-      emergencia: EMERGENCIAS_ADSB[a.emergency] || SQUAWKS_EMERGENCIA[a.squawk] || '',
-    }));
+    return lerReadsb(await buscarJson('adsb.lol',
+      `https://api.adsb.lol/v2/point/${fixo(lat)}/${fixo(lon)}/${raioEmNm(raioKm)}`));
+  },
+
+  async airplaneslive({ lat, lon, raioKm }) {
+    return lerReadsb(await buscarJson('airplanes.live',
+      `https://api.airplanes.live/v2/point/${fixo(lat)}/${fixo(lon)}/${raioEmNm(raioKm)}`));
+  },
+
+  async adsbfi({ lat, lon, raioKm }) {
+    return lerReadsb(await buscarJson('adsb.fi',
+      `https://opendata.adsb.fi/api/v2/lat/${fixo(lat)}/lon/${fixo(lon)}/dist/${raioEmNm(raioKm)}`));
   },
 
   // OpenSky Network: projeto de pesquisa. Consulta por retângulo; limite diário para uso anônimo.
@@ -80,9 +109,7 @@ const FONTES = {
     const dLat = raioKm / 111;
     const dLon = raioKm / (111 * Math.cos(lat * Math.PI / 180));
     const q = `lamin=${lat - dLat}&lomin=${lon - dLon}&lamax=${lat + dLat}&lomax=${lon + dLon}`;
-    const r = await fetch(`https://opensky-network.org/api/states/all?${q}`);
-    if (!r.ok) throw new Error(`OpenSky HTTP ${r.status}`);
-    const { states } = await r.json();
+    const { states } = await buscarJson('OpenSky', `https://opensky-network.org/api/states/all?${q}`);
     return (states || []).filter(s => s[5] != null && s[6] != null).map(s => ({
       id: s[0],
       callsign: (s[1] || '').trim(),
@@ -152,7 +179,7 @@ let minhaPos = null;          // { lat, lon }
 let marcadorEu = null;
 
 const elFonte = $('fonte');
-try { elFonte.value = localStorage.getItem('fonte') || elFonte.value; } catch {}
+try { elFonte.value = localStorage.getItem('fonteEscolhida') || elFonte.value; } catch {}
 
 // Silhueta de avião apontando para o norte; girada pelo rumo (0° = norte).
 const SVG_AVIAO = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" stroke="#000" stroke-width=".6" d="M12 2c.8 0 1.3.9 1.3 2v5l7.7 4.5v2l-7.7-2.3V18l2.2 1.7V21L12 20l-3.5 1v-1.3l2.2-1.7v-4.8L3 15.5v-2L10.7 9V4c0-1.1.5-2 1.3-2z"/></svg>';
@@ -411,25 +438,51 @@ function areaDoMapa() {
   return { lat: c.lat, lon: c.lng, raioKm: c.distanceTo(mapa.getBounds().getNorthEast()) / 1000 };
 }
 
+// No modo automático, a última fonte que funcionou é tentada primeiro; se falhar, passa para a próxima.
+const ORDEM_AUTOMATICA = ['adsblol', 'airplaneslive', 'adsbfi', 'opensky'];
+let fonteQueFuncionou = null;
+
+async function buscarComReserva() {
+  const escolhida = elFonte.value;
+  const ordem = escolhida === 'auto'
+    ? [fonteQueFuncionou, ...ORDEM_AUTOMATICA].filter((f, i, a) => f && a.indexOf(f) === i)
+    : [escolhida];
+  const erros = [];
+  for (const chave of ordem) {
+    const fonte = FONTES[chave];
+    try {
+      const [doMapa, perto] = await Promise.all([
+        fonte(areaDoMapa()),
+        minhaPos ? fonte({ ...minhaPos, raioKm: RAIO_ACIMA_KM }) : [],
+      ]);
+      fonteQueFuncionou = chave;
+      return { doMapa, perto, nome: elFonte.querySelector(`option[value="${chave}"]`).text };
+    } catch (e) {
+      erros.push(e.message);
+    }
+  }
+  throw new Error(erros.join(' | '));
+}
+
 async function atualizar() {
   if (emAndamento) { repetir = true; return; }
   emAndamento = true;
   repetir = false;
-  const fonte = FONTES[elFonte.value];
   try {
-    const [doMapa, perto] = await Promise.all([
-      fonte(areaDoMapa()),
-      minhaPos ? fonte({ ...minhaPos, raioKm: RAIO_ACIMA_KM }) : [],
-    ]);
+    const { doMapa, perto, nome } = await buscarComReserva();
     ultimaLista = doMapa;
     listaPerto = perto;
     const n = desenhar(ultimaLista);
     renderizarAcima();
     const unicos = new Map([...doMapa, ...perto].map(v => [v.id, v]));
     verificarAlertas(unicos.values());
-    $('status').textContent = `${n} aviões · ${new Date().toLocaleTimeString('pt-BR')} · ${elFonte.selectedOptions[0].text}`;
+    $('status').textContent = `${n} aviões · ${new Date().toLocaleTimeString('pt-BR')} · ${nome}`;
   } catch (e) {
-    $('status').textContent = `Erro ao buscar dados (${e.message}). Tentando de novo…`;
+    $('status').textContent = `Erro ao buscar dados — ${e.message}. Tentando de novo…`;
+    if (minhaPos && !listaPerto.length) {
+      $('acimaConteudo').className = 'vazio';
+      $('acimaConteudo').textContent = 'Não foi possível buscar os aviões agora. Tentando de novo…';
+    }
   } finally {
     emAndamento = false;
     if (repetir) atualizar();
@@ -451,7 +504,7 @@ let debounce;
 mapa.on('moveend', () => { clearTimeout(debounce); debounce = setTimeout(atualizar, 800); });
 
 elFonte.onchange = () => {
-  try { localStorage.setItem('fonte', elFonte.value); } catch {}
+  try { localStorage.setItem('fonteEscolhida', elFonte.value); } catch {}
   agendar();
 };
 
