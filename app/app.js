@@ -201,7 +201,7 @@ try { elFonte.value = localStorage.getItem('fonteEscolhida') || elFonte.value; }
 const SVG_AVIAO = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" stroke="#000" stroke-width=".6" d="M12 2c.8 0 1.3.9 1.3 2v5l7.7 4.5v2l-7.7-2.3V18l2.2 1.7V21L12 20l-3.5 1v-1.3l2.2-1.7v-4.8L3 15.5v-2L10.7 9V4c0-1.1.5-2 1.3-2z"/></svg>';
 
 function icone(v) {
-  const classes = ['aviao', v.noSolo && 'solo', v.emergencia && 'emerg', v.id === selecionado && 'sel']
+  const classes = ['aviao', v.noSolo && 'solo', v.emergencia && 'emerg', ehSeguido(v) && 'seg', v.id === selecionado && 'sel']
     .filter(Boolean).join(' ');
   return L.divIcon({
     className: '',
@@ -251,7 +251,10 @@ const buscandoFoto = new Map();
 const ehVooComercial = v => /^[A-Z]{3}\d/.test(v.callsign);
 
 function lerAeroporto(a) {
-  return a && { iata: a.iata_code || a.icao_code || '', cidade: a.municipality || a.name || '', nome: a.name || '' };
+  return a && {
+    iata: a.iata_code || a.icao_code || '', cidade: a.municipality || a.name || '', nome: a.name || '',
+    lat: a.latitude ?? null, lon: a.longitude ?? null,
+  };
 }
 
 function buscarRota(v) {
@@ -356,6 +359,8 @@ function mostrarPainel(v) {
   $('pLista').hidden = true;
   $('pDados').hidden = false;
   $('pLink').hidden = false;
+  $('pSeguir').hidden = false;
+  $('pSeguir').textContent = ehSeguido(v) ? '★ Seguindo — toque para parar' : '⭐ Seguir este voo';
   $('pCallsign').textContent = nomeAmigavel(v);
   const linhas = [
     ['Situação', v.emergencia || (v.noSolo ? 'No solo' : 'Em voo')],
@@ -425,54 +430,147 @@ function textoAtraso(min) {
   return '<span class="adiantado">no horário</span>';
 }
 
-function htmlChegada(v) {
-  const origem = v.origem.cidade ? `${v.origem.cidade}${v.origem.iata ? ` (${v.origem.iata})` : ''}` : (v.origem.iata || '—');
+// --- Pousos e decolagens vistos pelo radar ---------------------------------
+// O AeroDataBox muitas vezes só tem o horário programado. Quando o próprio app vê um avião baixo
+// perto de um aeroporto, descendo ou subindo, guarda o horário (por 24 h, no aparelho) para
+// confirmar o pouso/decolagem na lista do aeroporto.
+
+const CHAVE_EVENTOS = 'eventosRadar';
+const VALIDADE_EVENTOS_MS = 24 * 3600 * 1000;
+let eventosRadar = [];
+try { eventosRadar = JSON.parse(localStorage.getItem(CHAVE_EVENTOS) || '[]').filter(e => Date.now() - e.quando < VALIDADE_EVENTOS_MS); } catch {}
+const estadoAnterior = new Map(); // id -> { noSolo }
+
+const normalizarMatricula = m => (m || '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
+const horaDoAparelho = t => new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+function aeroportoProximo(p, raioKm) {
+  const dLat = raioKm / 111;
+  let melhor = null, melhorKm = raioKm;
+  for (const a of aeroportos) {
+    if (Math.abs(a.lat - p.lat) > dLat || Math.abs(a.lon - p.lon) > dLat * 2) continue;
+    const km = distanciaKm(p, a);
+    if (km <= melhorKm) { melhor = a; melhorKm = km; }
+  }
+  return melhor;
+}
+
+function registrarEventos(lista) {
+  const agora = Date.now();
+  let mudou = false;
+  for (const v of lista) {
+    const antes = estadoAnterior.get(v.id);
+    estadoAnterior.set(v.id, { noSolo: v.noSolo });
+    const baixo = v.noSolo || (v.altitudeM != null && v.altitudeM < 600);
+    if (!baixo || !aeroportos.length) continue;
+    const a = aeroportoProximo(v, 8);
+    if (!a) continue;
+    let tipo = null;
+    if (v.noSolo) tipo = antes && !antes.noSolo ? 'pouso' : null;
+    else if (antes?.noSolo || v.subidaMs > 1) tipo = 'decolagem';
+    else if (v.subidaMs < -1) tipo = 'pouso';
+    if (!tipo) continue;
+    const existente = eventosRadar.find(e => e.id === v.id && e.icao === a.icao && e.tipo === tipo && agora - e.quando < 30 * 60000);
+    if (existente) {
+      // No pouso vale a última observação (mais perto do toque na pista); na decolagem, a primeira.
+      if (tipo === 'pouso') { existente.quando = agora; mudou = true; }
+      continue;
+    }
+    eventosRadar.push({ id: v.id, reg: normalizarMatricula(v.matricula), icao: a.icao, tipo, quando: agora });
+    mudou = true;
+  }
+  if (mudou) {
+    eventosRadar = eventosRadar.filter(e => agora - e.quando < VALIDADE_EVENTOS_MS).slice(-500);
+    try { localStorage.setItem(CHAVE_EVENTOS, JSON.stringify(eventosRadar)); } catch {}
+  }
+}
+
+function eventoDoRadar(voo, icao, tipo) {
+  const reg = normalizarMatricula(voo.matricula);
+  return eventosRadar
+    .filter(e => e.icao === icao && e.tipo === tipo && ((voo.hex && e.id === voo.hex) || (reg && e.reg === reg)) &&
+      (!voo.previstoUtc || Math.abs(e.quando - voo.previstoUtc) < 3 * 3600000))
+    .sort((a, b) => b.quando - a.quando)[0];
+}
+
+// --- Lista de chegadas / partidas ------------------------------------------
+
+function htmlVoo(v, tipo, icao) {
+  const chegada = tipo === 'chegadas';
+  const outro = v.outro || v.origem || {}; // "origem" era o nome antigo (respostas ainda em cache)
+  const lugar = outro.cidade ? `${outro.cidade}${outro.iata ? ` (${outro.iata})` : ''}` : (outro.iata || '—');
   const aviao = [v.modelo, v.matricula, v.carga && 'carga'].filter(Boolean).join(' · ');
   const noMapa = v.hex && marcadores.has(v.hex);
+  const real = v.real || v.pousou;
+  const verbo = chegada ? 'pousou' : 'decolou';
+  const radar = !real && eventoDoRadar(v, icao, chegada ? 'pouso' : 'decolagem');
+  let hora, situacao;
+  if (real) {
+    hora = `${verbo} ${escapar(real)}`;
+    situacao = `${v.previsto ? ` · previsto ${escapar(v.previsto)}` : ''} · ${textoAtraso(v.atrasoMin)}`;
+  } else if (radar) {
+    hora = `${verbo} ~${horaDoAparelho(radar.quando)}`;
+    situacao = ` · previsto ${escapar(v.previsto)} · <span class="adiantado">✔ visto pelo radar</span>`;
+  } else {
+    hora = `previsto ${escapar(v.previsto)}`;
+    situacao = v.confirmado ? '' : ` · <span class="sem-conf">${chegada ? 'pouso não confirmado' : 'decolagem não confirmada'}</span>`;
+  }
   return `<li${noMapa ? ` data-id="${escapar(v.hex)}" class="no-mapa"` : ''}>
     <div class="miniatura" data-hex="${escapar(v.hex)}" data-reg="${escapar(v.matricula)}">${SVG_AVIAO}</div>
     <div class="info">
     <div class="cab"><strong>${escapar(v.numero)}</strong> <span>${escapar(v.companhia)}</span>
-      <span class="hora">${v.pousou ? `pousou ${escapar(v.pousou)}` : `previsto ${escapar(v.previsto)}`}</span></div>
-    <div class="sub">de ${escapar(origem)}${v.pousou && v.previsto ? ` · previsto ${escapar(v.previsto)}` : ''}${
-      v.pousou ? ` · ${textoAtraso(v.atrasoMin)}` : (v.confirmado ? '' : ' · <span class="sem-conf">pouso não confirmado</span>')}</div>
+      <span class="hora">${hora}</span></div>
+    <div class="sub">${chegada ? 'de' : 'para'} ${escapar(lugar)}${situacao}</div>
     ${aviao ? `<div class="sub">${escapar(aviao)}${noMapa ? ' · <b>ver no mapa ›</b>' : ''}</div>` : ''}
     </div>
   </li>`;
 }
 
-async function abrirAeroporto(a) {
+let abaAberta = 'chegadas';
+let aeroportoObj = null;
+
+function htmlAbas(tipo) {
+  return `<div class="abas">${['chegadas', 'partidas'].map(t =>
+    `<button data-aba="${t}"${t === tipo ? ' class="ativa"' : ''}>${t === 'chegadas' ? 'Chegadas' : 'Partidas'}</button>`).join('')}</div>`;
+}
+
+async function abrirAeroporto(a, tipo = 'chegadas') {
   selecionar(null);
   aeroportoAberto = a.icao;
+  aeroportoObj = a;
+  abaAberta = tipo;
   $('pCallsign').textContent = `${a.cidade || a.nome} (${a.iata})`;
   $('pRota').textContent = a.nome;
   $('pFoto').hidden = true;
   $('pDados').hidden = true;
   $('pLink').hidden = true;
+  $('pSeguir').hidden = true;
   const lista = $('pLista');
   lista.hidden = false;
-  lista.innerHTML = '<h3>Últimas chegadas</h3><p class="nota">Buscando…</p>';
+  lista.innerHTML = htmlAbas(tipo) + '<p class="nota">Buscando…</p>';
   $('painel').classList.remove('oculto');
 
+  const chave = `${a.icao}:${tipo}`;
+  const aindaAberto = () => aeroportoAberto === a.icao && abaAberta === tipo;
   try {
-    let c = chegadasEmCache.get(a.icao);
+    let c = chegadasEmCache.get(chave);
     if (!c || Date.now() - c.quando > CACHE_CHEGADAS_MS) {
-      c = { quando: Date.now(), dados: await buscarDoSite(`/api/chegadas?icao=${a.icao}`) };
-      chegadasEmCache.set(a.icao, c);
+      c = { quando: Date.now(), dados: await buscarDoSite(`/api/chegadas?icao=${a.icao}${tipo === 'partidas' ? '&tipo=partidas' : ''}`) };
+      chegadasEmCache.set(chave, c);
     }
-    if (aeroportoAberto !== a.icao) return;
+    if (!aindaAberto()) return;
     const voos = c.dados.voos || [];
-    lista.innerHTML = '<h3>Últimas chegadas</h3>' + (voos.length
-      ? `<ol>${voos.map(htmlChegada).join('')}</ol><p class="nota">Horários locais do aeroporto · dados: AeroDataBox</p>`
-      : '<p class="nota">Nenhum voo pousou aqui nas últimas 12 horas.</p>');
+    lista.innerHTML = htmlAbas(tipo) + (voos.length
+      ? `<ol>${voos.map(v => htmlVoo(v, tipo, a.icao)).join('')}</ol><p class="nota">Horários locais do aeroporto · dados: AeroDataBox</p>`
+      : `<p class="nota">Nenhum voo ${tipo === 'partidas' ? 'decolou daqui' : 'pousou aqui'} nas últimas 12 horas.</p>`);
     preencherMiniaturas(lista, a.icao);
   } catch (e) {
-    if (aeroportoAberto !== a.icao) return;
+    if (!aindaAberto()) return;
     const msg = {
-      'so-na-vercel': 'As chegadas só funcionam na versão publicada na Vercel.',
+      'so-na-vercel': 'As chegadas e partidas só funcionam na versão publicada na Vercel.',
       'sem-chave': 'Falta configurar a chave do AeroDataBox na Vercel (variável AERODATABOX_KEY).',
-    }[e.message] || `Não foi possível buscar as chegadas (${e.message}).`;
-    lista.innerHTML = `<h3>Últimas chegadas</h3><p class="nota">${escapar(msg)}</p>`;
+    }[e.message] || `Não foi possível buscar os voos (${e.message}).`;
+    lista.innerHTML = htmlAbas(tipo) + `<p class="nota">${escapar(msg)}</p>`;
   }
 }
 
@@ -498,6 +596,8 @@ function preencherMiniaturas(lista, icao) {
 
 $('pLista').onclick = e => {
   if (e.target.closest('a')) return; // tocar na foto abre a página dela
+  const aba = e.target.closest('[data-aba]')?.dataset.aba;
+  if (aba) { if (aba !== abaAberta && aeroportoObj) abrirAeroporto(aeroportoObj, aba); return; }
   const id = e.target.closest('[data-id]')?.dataset.id;
   const m = id && marcadores.get(id);
   if (!m) return;
@@ -670,6 +770,189 @@ function verificarAlertas(lista) {
   }
 }
 
+// --- Seguir um voo --------------------------------------------------------
+// Segue pelo número do voo (convertido para o callsign usado no ADS-B) ou pelo transponder.
+// Mostra uma barra com a rota e a hora prevista de chegada, avisa quando está chegando e quando
+// pousa, e gera um link para mandar no WhatsApp. Fica salvo no aparelho até parar de seguir.
+
+// Número de voo como aparece no bilhete (código IATA da companhia) -> prefixo do callsign (ICAO).
+const IATA_PARA_ICAO = {
+  G3: ['GLO'], LA: ['TAM', 'LAN'], JJ: ['TAM'], AD: ['AZU'], '2Z': ['PTB'], AA: ['AAL'], UA: ['UAL'],
+  DL: ['DAL'], AF: ['AFR'], KL: ['KLM'], LH: ['DLH'], BA: ['BAW'], IB: ['IBE'], TP: ['TAP'], EK: ['UAE'],
+  QR: ['QTR'], TK: ['THY'], AR: ['ARG'], AV: ['AVA'], CM: ['CMP'], H2: ['SKU'], JA: ['JAT'], ET: ['ETH'],
+  AZ: ['ITY'], LX: ['SWR'], UX: ['AEA'], AC: ['ACA'],
+};
+
+function callsignsDe(texto) {
+  const t = texto.toUpperCase().replace(/[\s-]/g, '');
+  if (/^[A-Z]{3}\d{1,4}[A-Z]?$/.test(t)) return [t]; // já é callsign (ex.: GLO1280)
+  const m = t.match(/^([A-Z0-9]{2})0*(\d{1,4}[A-Z]?)$/);
+  return m && IATA_PARA_ICAO[m[1]] ? IATA_PARA_ICAO[m[1]].map(prefixo => prefixo + m[2]) : [];
+}
+
+const CHAVE_SEGUIDO = 'vooSeguido';
+let seguido = null;
+try { seguido = JSON.parse(localStorage.getItem(CHAVE_SEGUIDO) || 'null'); } catch {}
+
+function salvarSeguido() {
+  try {
+    if (seguido) localStorage.setItem(CHAVE_SEGUIDO, JSON.stringify(seguido));
+    else localStorage.removeItem(CHAVE_SEGUIDO);
+  } catch {}
+}
+
+function ehSeguido(v) {
+  return !!seguido && ((seguido.hex && v.id === seguido.hex) || seguido.callsigns.includes(v.callsign));
+}
+
+function seguirVoo({ callsigns = [], hex = '', nome = '' }) {
+  seguido = { callsigns, hex, nome: nome || callsigns[0] || hex.toUpperCase(), desde: Date.now(),
+    voando: false, perto: null, sumiuVezes: 0, pousou: null, avisouChegando: false, rota: null, ultimo: null };
+  salvarSeguido();
+  renderizarSeguido();
+  mostrarPainel(selecionado && dadosDe(selecionado));
+  aviso(`Seguindo ${seguido.nome}. O app avisa quando ele estiver chegando e quando pousar.`, 'info');
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
+  atualizar();
+}
+
+function pararDeSeguir() {
+  seguido = null;
+  salvarSeguido();
+  renderizarSeguido();
+  if (selecionado) mostrarPainel(dadosDe(selecionado));
+  desenhar(ultimaLista);
+}
+
+// Fontes que permitem procurar um avião em qualquer lugar do mundo por callsign ou transponder.
+const FONTES_BUSCA = [
+  ['adsb.lol', 'https://api.adsb.lol/v2'],
+  ['airplanes.live', 'https://api.airplanes.live/v2'],
+  ['adsb.fi', 'https://opendata.adsb.fi/api/v2'],
+];
+
+async function procurarSeguido() {
+  const caminhos = seguido.hex ? [`hex/${seguido.hex}`] : seguido.callsigns.map(c => `callsign/${c}`);
+  for (const [nome, base] of FONTES_BUSCA) {
+    try {
+      for (const c of caminhos) {
+        const lista = lerReadsb(await buscarJson(nome, `${base}/${c}`));
+        if (lista.length) return lista[0];
+      }
+      return null; // a fonte respondeu: o voo não está no ar (ou está fora da cobertura das antenas)
+    } catch {}
+  }
+  return null;
+}
+
+function marcarPouso(quando, lugar) {
+  seguido.pousou = { quando, lugar: lugar || seguido.rota?.destino?.cidade || '' };
+  const onde = seguido.pousou.lugar ? ` em ${seguido.pousou.lugar}` : '';
+  notificar(`seguido-pouso:${seguido.nome}`, `✔ ${seguido.nome} pousou${onde}`, `Às ${horaDoAparelho(quando)}`, false);
+}
+
+async function atualizarSeguido(unicos) {
+  if (!seguido || seguido.pousou) return null;
+  const v = [...unicos.values()].find(ehSeguido) || await procurarSeguido();
+  if (!seguido) return null; // parou de seguir enquanto buscava
+  const agora = Date.now();
+  if (v) {
+    if (!seguido.hex) seguido.hex = v.id; // depois de achar, segue também pelo transponder
+    const rota = await buscarRota(v);
+    if (rota) seguido.rota = rota;
+    const destino = seguido.rota?.destino?.lat != null ? seguido.rota.destino : null;
+    const kmDestino = destino ? distanciaKm(v, destino) : null;
+    seguido.sumiuVezes = 0;
+    if (v.noSolo) {
+      if (seguido.voando) marcarPouso(agora, aeroportoProximo(v, 10)?.cidade);
+    } else {
+      seguido.voando = true;
+      if (kmDestino != null && kmDestino < 50 && !seguido.avisouChegando) {
+        seguido.avisouChegando = true;
+        notificar(`seguido-chegando:${seguido.nome}`, `✈ ${seguido.nome} está chegando`,
+          `A ${fmt(kmDestino)} km de ${destino.cidade}`, false);
+      }
+      // Baixo e perto de um aeroporto: se sumir do radar logo depois, é porque pousou
+      // (as antenas raramente veem o avião no chão).
+      const aeroporto = v.altitudeM != null && v.altitudeM < 1000 && (v.subidaMs ?? -1) <= 0 &&
+        (destino && kmDestino < 20 ? destino : aeroportoProximo(v, 20));
+      seguido.perto = aeroporto ? { quando: agora, lugar: aeroporto.cidade } : null;
+    }
+    seguido.ultimo = { ...v, kmDestino, visto: agora };
+  } else if (seguido.voando) {
+    seguido.sumiuVezes++;
+    if (seguido.perto && seguido.sumiuVezes >= 2) marcarPouso(seguido.perto.quando, seguido.perto.lugar);
+  }
+  salvarSeguido();
+  return v;
+}
+
+function renderizarSeguido() {
+  const el = $('seguindo');
+  document.body.classList.toggle('com-seguido', !!seguido);
+  if (!seguido) { el.hidden = true; return; }
+  el.hidden = false;
+  const u = seguido.ultimo;
+  const r = seguido.rota;
+  let linha;
+  if (seguido.pousou) {
+    linha = `✔ Pousou${seguido.pousou.lugar ? ` em ${seguido.pousou.lugar}` : ''} às ~${horaDoAparelho(seguido.pousou.quando)}`;
+  } else if (!u) {
+    linha = 'Aguardando o voo aparecer no radar…';
+  } else if (u.noSolo) {
+    linha = 'No solo, aguardando a decolagem';
+  } else {
+    const partes = [];
+    if (u.kmDestino != null) {
+      partes.push(`faltam ${fmt(u.kmDestino)} km`);
+      if (u.velocidadeKmh > 150) partes.push(`chega ~${horaDoAparelho(u.visto + u.kmDestino / u.velocidadeKmh * 3600000)}`);
+    } else {
+      partes.push(`${fmt(u.altitudeM)} m · ${fmt(u.velocidadeKmh)} km/h`);
+    }
+    if (Date.now() - u.visto > 90000) partes.push(`visto às ${horaDoAparelho(u.visto)}`);
+    linha = partes.join(' · ');
+  }
+  if (r && !seguido.pousou) linha = `${textoRota(r, false)} · ${linha}`;
+  el.querySelector('.seg-titulo').textContent = `⭐ ${u ? nomeAmigavel(u) : seguido.nome}`;
+  el.querySelector('.seg-linha').textContent = linha;
+}
+
+$('segTexto').onclick = () => {
+  const u = seguido?.ultimo;
+  if (!u) return;
+  mapa.setView([u.lat, u.lon], Math.max(mapa.getZoom(), 8));
+  if (marcadores.has(u.id)) selecionar(u.id);
+};
+$('segParar').onclick = pararDeSeguir;
+$('segWhats').onclick = () => {
+  if (!seguido) return;
+  const ref = seguido.callsigns[0] ? `voo=${encodeURIComponent(seguido.callsigns[0])}` : `hex=${encodeURIComponent(seguido.hex)}`;
+  const link = `${location.origin}${location.pathname}?${ref}`;
+  const rota = seguido.rota ? ` (${textoRota(seguido.rota, false)})` : '';
+  const texto = `Acompanhe o voo ${seguido.ultimo ? nomeAmigavel(seguido.ultimo) : seguido.nome}${rota} ao vivo: ${link}`;
+  window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank', 'noopener');
+};
+
+$('pSeguir').onclick = () => {
+  const v = selecionado && dadosDe(selecionado);
+  if (!v) return;
+  if (ehSeguido(v)) pararDeSeguir();
+  else seguirVoo({ callsigns: v.callsign ? [v.callsign] : [], hex: v.id, nome: nomeAmigavel(v) });
+};
+
+// Na busca, Enter segue o voo digitado (ex.: "G3 1280", "AD4050", "GLO1280").
+$('busca').addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const texto = e.target.value.trim();
+  if (!texto) return;
+  const callsigns = callsignsDe(texto);
+  if (!callsigns.length) { aviso('Para seguir, digite o número do voo, ex.: G3 1280 ou AD 4050.', 'info'); return; }
+  e.target.value = '';
+  e.target.blur();
+  filtro = '';
+  seguirVoo({ callsigns, nome: texto.toUpperCase() });
+});
+
 // --- Atualização periódica -------------------------------------------------
 
 let ultimaLista = [];
@@ -714,11 +997,16 @@ async function atualizar() {
   repetir = false;
   try {
     const { doMapa, perto, nome } = await buscarComReserva();
-    ultimaLista = doMapa;
+    const unicos = new Map([...doMapa, ...perto].map(v => [v.id, v]));
+    // O voo seguido aparece no mapa mesmo fora da área visível.
+    const vSeguido = await atualizarSeguido(unicos).catch(() => null);
+    if (vSeguido) unicos.set(vSeguido.id, vSeguido);
+    ultimaLista = vSeguido && !doMapa.some(v => v.id === vSeguido.id) ? [...doMapa, vSeguido] : doMapa;
     listaPerto = perto;
     const n = desenhar(ultimaLista);
     renderizarAcima();
-    const unicos = new Map([...doMapa, ...perto].map(v => [v.id, v]));
+    renderizarSeguido();
+    registrarEventos(unicos.values());
     verificarAlertas(unicos.values());
     $('status').textContent = `${n} aviões · ${new Date().toLocaleTimeString('pt-BR')} · ${nome}`;
   } catch (e) {
@@ -739,7 +1027,8 @@ function agendar() {
   // Em segundo plano só continua buscando dados se houver alertas que possam virar notificação.
   timer = setInterval(() => {
     const notifica = 'Notification' in window && Notification.permission === 'granted';
-    if (!document.hidden || (notifica && (config.perto || config.emergencias))) atualizar();
+    const vigiando = config.perto || config.emergencias || (seguido && !seguido.pousou);
+    if (!document.hidden || (notifica && vigiando)) atualizar();
   }, INTERVALO_MS);
 }
 
@@ -781,6 +1070,17 @@ $('btnLocal').onclick = irParaMinhaLocalizacao;
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 atualizarBotaoAlertas();
+
+// Link compartilhado: ?voo=GLO1280 ou ?hex=e48a1b abre o app já seguindo o voo.
+{
+  const params = new URLSearchParams(location.search);
+  const voo = params.get('voo'), hex = (params.get('hex') || '').toLowerCase();
+  const callsigns = voo ? callsignsDe(voo) : [];
+  if (callsigns.length) seguirVoo({ callsigns, nome: voo.toUpperCase() });
+  else if (/^[0-9a-f]{6}$/.test(hex)) seguirVoo({ hex });
+  if (voo || hex) history.replaceState(null, '', location.pathname);
+}
+renderizarSeguido();
 if (navigator.geolocation) {
   navigator.geolocation.watchPosition(p => novaPosicao(p, false), () => renderizarAcima(),
     { enableHighAccuracy: false, maximumAge: 60000 });

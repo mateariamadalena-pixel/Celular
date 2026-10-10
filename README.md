@@ -89,13 +89,27 @@ fontes diretamente (e pode não funcionar).
    ou em `https://<nome-do-projeto>.vercel.app/app/` se for a raiz do repositório. O intermediário
    funciona nos dois casos. Cada mudança no `main` atualiza o site.
 
-### Aeroportos e últimas chegadas
+### Seguir um voo
+
+Digite o número do voo na busca (ex.: `G3 1280`, `AD 4050`, `LA 3218` ou o callsign `GLO1280`) e
+toque em Enter, ou toque em **⭐ Seguir este voo** no painel de um avião. Aparece uma barra no topo
+com a rota, quanto falta até o destino e a hora prevista de chegada. O app avisa quando o voo está
+a menos de 50 km do destino e quando pousa (o pouso é detectado quando o avião toca o solo ou some
+do radar logo depois de estar baixo perto de um aeroporto). O botão **WhatsApp** manda um link
+(`/?voo=GLO1280`) que abre o app já seguindo o mesmo voo. O voo seguido fica salvo no aparelho.
+
+### Aeroportos, chegadas e partidas
 
 Os aeroportos com voos comerciais aparecem no mapa com o código IATA (os grandes a partir do zoom 5,
 os médios a partir do 7). Tocando num aeroporto, o app mostra os **últimos 10 voos que pousaram**
-nas últimas 12 horas: número do voo, companhia, origem, horário previsto e real, atraso, modelo e
+nas últimas 12 horas, e na aba **Partidas** os últimos 10 que decolaram: número do voo, companhia, origem, horário previsto e real, atraso, modelo e
 matrícula, com a foto da aeronave ao lado (pela matrícula ou pelo transponder). Se o avião
 ainda estiver no mapa, "ver no mapa ›" leva até ele.
+
+Quando o AeroDataBox só tem o horário programado, o app tenta confirmar com o próprio radar:
+se ele viu o avião (pela matrícula ou transponder) baixo, descendo ou subindo, a até 8 km do
+aeroporto, mostra "pousou ~16:52 ✔ visto pelo radar". Isso fica guardado no aparelho por 24 horas
+e só vale para os aviões que o app viu enquanto estava aberto.
 
 - Lista de aeroportos: [OurAirports](https://ourairports.com/data/) (domínio público), filtrada
   por `api/aeroportos.js`.
@@ -130,4 +144,5 @@ Para testar no computador: `cd app && python3 -m http.server 8000` e abra `http:
 
 - Rastro (trilha) do avião
 - Notificações mesmo com o app fechado (exige um pequeno servidor com Web Push)
+- Filtros no mapa (helicópteros, cargueiros, militares), rastro do avião, favoritos e diário de avistamentos
 - Empacotar como app nativo para as lojas com [Capacitor](https://capacitorjs.com)
