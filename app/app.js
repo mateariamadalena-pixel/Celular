@@ -239,6 +239,64 @@ function desenhar(lista) {
   return vistos.size;
 }
 
+// --- Rota e foto -----------------------------------------------------------
+// Rota (origem → destino) pelo callsign no adsbdb; foto pelo transponder no Planespotters
+// (com fallback para o adsbdb). Ficam em cache porque não mudam durante o voo.
+
+const rotas = new Map(); // callsign -> rota | null (null = sem rota conhecida)
+const fotos = new Map(); // id -> foto | null
+const buscandoRota = new Map();
+const buscandoFoto = new Map();
+
+const ehVooComercial = v => /^[A-Z]{3}\d/.test(v.callsign);
+
+function lerAeroporto(a) {
+  return a && { iata: a.iata_code || a.icao_code || '', cidade: a.municipality || a.name || '', nome: a.name || '' };
+}
+
+function buscarRota(v) {
+  if (!ehVooComercial(v)) return Promise.resolve(null);
+  const cs = v.callsign;
+  if (rotas.has(cs)) return Promise.resolve(rotas.get(cs));
+  if (!buscandoRota.has(cs)) {
+    buscandoRota.set(cs, buscarJson('adsbdb', `https://api.adsbdb.com/v0/callsign/${encodeURIComponent(cs)}`)
+      .then(j => {
+        const r = j?.response?.flightroute;
+        return r?.origin && r?.destination ? { origem: lerAeroporto(r.origin), destino: lerAeroporto(r.destination) } : null;
+      })
+      .catch(() => null)
+      .then(rota => { rotas.set(cs, rota); buscandoRota.delete(cs); return rota; }));
+  }
+  return buscandoRota.get(cs);
+}
+
+function buscarFoto(v) {
+  const id = v.id;
+  if (fotos.has(id)) return Promise.resolve(fotos.get(id));
+  if (!buscandoFoto.has(id)) {
+    const planespotters = buscarJson('Planespotters', `https://api.planespotters.net/pub/photos/hex/${encodeURIComponent(id)}`)
+      .then(j => {
+        const f = j?.photos?.[0];
+        return f && { src: (f.thumbnail_large || f.thumbnail).src, link: f.link, credito: `Foto: ${f.photographer} · Planespotters.net` };
+      })
+      .catch(() => null);
+    buscandoFoto.set(id, planespotters
+      .then(f => f || buscarJson('adsbdb', `https://api.adsbdb.com/v0/aircraft/${encodeURIComponent(id)}`)
+        .then(j => {
+          const a = j?.response?.aircraft;
+          const src = a?.url_photo_thumbnail || a?.url_photo;
+          return src && { src, link: a.url_photo || src, credito: 'Foto: airport-data.com' };
+        })
+        .catch(() => null))
+      .then(f => { fotos.set(id, f || null); buscandoFoto.delete(id); return f || null; }));
+  }
+  return buscandoFoto.get(id);
+}
+
+const textoRota = (r, comCodigo) => r
+  ? [r.origem, r.destino].map(a => comCodigo && a.iata ? `${a.cidade} (${a.iata})` : a.cidade).join(' → ')
+  : '';
+
 // --- Painel de detalhes ----------------------------------------------------
 
 // O avião pode estar no cartão "Acima de você" sem estar na área visível do mapa.
@@ -251,7 +309,35 @@ function selecionar(id) {
     const m = k && marcadores.get(k);
     if (m) m.marker.setIcon(icone(m.dados));
   }
-  mostrarPainel(id && dadosDe(id));
+  const v = id && dadosDe(id);
+  mostrarPainel(v);
+  if (v && id !== anterior) carregarExtras(v);
+}
+
+// Foto e rota chegam depois; só preenche se o avião ainda for o selecionado.
+function carregarExtras(v) {
+  const foto = $('pFoto'), rota = $('pRota');
+  foto.hidden = true;
+  foto.innerHTML = '';
+  rota.textContent = ehVooComercial(v) ? 'Buscando rota…' : '';
+  buscarRota(v).then(r => {
+    if (selecionado !== v.id) return;
+    rota.textContent = r ? textoRota(r, true) : (ehVooComercial(v) ? 'Rota não encontrada' : '');
+  });
+  buscarFoto(v).then(f => {
+    if (selecionado !== v.id || !f) return;
+    const a = document.createElement('a');
+    a.href = f.link; a.target = '_blank'; a.rel = 'noopener';
+    const img = document.createElement('img');
+    img.src = f.src; img.alt = `Foto da aeronave ${v.matricula || v.id.toUpperCase()}`;
+    img.referrerPolicy = 'no-referrer';
+    img.onerror = () => { foto.hidden = true; };
+    const credito = document.createElement('small');
+    credito.textContent = f.credito;
+    a.append(img);
+    foto.append(a, credito);
+    foto.hidden = false;
+  });
 }
 
 function mostrarPainel(v) {
@@ -321,6 +407,9 @@ function renderizarAcima() {
   const [{ v, km, az }, ...resto] = lista;
   // Com bússola, a seta aponta para o avião em relação ao celular; sem ela, em relação ao norte.
   const giro = rumoCelular == null ? az : az - rumoCelular;
+  // A rota vem de outra consulta: mostra se já está no cache; senão busca e redesenha quando chegar.
+  const rotaDestaque = rotas.get(v.callsign);
+  if (ehVooComercial(v) && !rotas.has(v.callsign)) buscarRota(v).then(r => { if (r) renderizarAcima(); });
   const detalhes = [nomeModelo(v), v.altitudeM != null && `${fmt(v.altitudeM)} m de altitude`].filter(Boolean).join(' · ');
   el.className = '';
   el.innerHTML = `
@@ -329,6 +418,7 @@ function renderizarAcima() {
       <div>
         <div class="nome">${escapar(nomeAmigavel(v))}</div>
         ${v.emergencia ? `<div class="linha">⚠ ${escapar(v.emergencia)}</div>` : ''}
+        ${rotaDestaque ? `<div class="linha rota">${escapar(textoRota(rotaDestaque, false))}</div>` : ''}
         <div class="linha">${escapar(detalhes)}</div>
         <div class="linha">${fmt(km, 1)} km a ${pontoCardeal(az)} · ${escapar(descreverCeu(km, v.altitudeM))}</div>
       </div>

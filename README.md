@@ -37,6 +37,11 @@ inicial como se fosse um app, sem precisar de loja ou de compilar nada.
 | [adsb.fi](https://github.com/adsbfi/opendata) | Grátis, sem cadastro | Rede comunitária, uso não comercial |
 | [OpenSky Network](https://opensky-network.org) | Grátis para uso não comercial | Uso anônimo tem limite diário de consultas |
 
+Para **origem/destino** o app consulta o [adsbdb](https://www.adsbdb.com) pelo código do voo, e
+para a **foto da aeronave** o [Planespotters.net](https://www.planespotters.net) pelo código do
+transponder (com o adsbdb como reserva). A foto sempre mostra o crédito do fotógrafo e leva à
+página original, como o Planespotters pede.
+
 No modo **Automático** (padrão), o app tenta as fontes nessa ordem e fica com a primeira que
 responder. Se todas falharem, o erro de cada uma aparece no canto superior esquerdo.
 
@@ -62,7 +67,7 @@ companhia e voo ("LATAM · TAM3054"), modelo ("Airbus A320"), altitude, distânc
 
 - Mapa (OpenStreetMap) com os aviões da área visível, atualizado a cada 15 s
 - Ícone girado conforme o rumo; aviões no solo em cinza
-- Toque num avião: altitude, velocidade, razão de subida/descida, modelo, matrícula, transponder
+- Toque num avião: rota (ex.: Porto Alegre (POA) → São Paulo (GRU)), foto da aeronave, altitude, velocidade, razão de subida/descida, modelo, matrícula, transponder
 - Busca por voo, matrícula ou código ICAO
 - Botão para centralizar na sua localização
 - Instalável na tela inicial (manifest + service worker)
@@ -97,7 +102,6 @@ Para testar no computador: `cd app && python3 -m http.server 8000` e abra `http:
 
 ### Próximos passos possíveis
 
-- Mostrar origem/destino (exige uma base de rotas, ex.: adsb.lol `/api/0/routeset`)
 - Rastro (trilha) do avião
 - Notificações mesmo com o app fechado (exige um pequeno servidor com Web Push)
 - Empacotar como app nativo para as lojas com [Capacitor](https://capacitorjs.com)

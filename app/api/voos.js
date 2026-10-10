@@ -9,7 +9,12 @@ const HOSTS_PERMITIDOS = new Set([
   'api.airplanes.live',
   'opendata.adsb.fi',
   'opensky-network.org',
+  'api.adsbdb.com',        // rota (origem/destino) e dados da aeronave
+  'api.planespotters.net', // fotos
 ]);
+
+// Rota e foto não mudam durante o voo, então podem ficar mais tempo em cache.
+const CACHE_LONGO = new Set(['api.adsbdb.com', 'api.planespotters.net']);
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -33,7 +38,7 @@ module.exports = async (req, res) => {
     });
     const corpo = await r.text();
     // Um cache curto evita repetir a mesma consulta quando várias pessoas olham a mesma área.
-    res.setHeader('Cache-Control', 'public, s-maxage=5');
+    res.setHeader('Cache-Control', `public, s-maxage=${CACHE_LONGO.has(alvo.hostname) ? 3600 : 5}`);
     res.setHeader('Content-Type', r.headers.get('content-type') || 'application/json');
     return res.status(r.status).send(corpo);
   } catch (e) {
