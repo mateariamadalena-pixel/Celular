@@ -342,6 +342,10 @@ function carregarExtras(v) {
 
 function mostrarPainel(v) {
   if (!v) { $('painel').classList.add('oculto'); return; }
+  aeroportoAberto = null;
+  $('pLista').hidden = true;
+  $('pDados').hidden = false;
+  $('pLink').hidden = false;
   $('pCallsign').textContent = nomeAmigavel(v);
   const linhas = [
     ['Situação', v.emergencia || (v.noSolo ? 'No solo' : 'Em voo')],
@@ -365,7 +369,105 @@ function mostrarPainel(v) {
   $('painel').classList.remove('oculto');
 }
 
-$('fechar').onclick = () => { selecionar(null); };
+$('fechar').onclick = () => { aeroportoAberto = null; selecionar(null); };
+
+// --- Aeroportos e chegadas -------------------------------------------------
+// A lista de aeroportos e as chegadas vêm de funções do próprio site na Vercel
+// (api/aeroportos.js e api/chegadas.js); no GitHub Pages esses recursos não existem.
+
+const camadaAeroportos = L.layerGroup().addTo(mapa);
+let aeroportos = [];
+let aeroportoAberto = null;
+const chegadasEmCache = new Map(); // icao -> { quando, dados }
+const CACHE_CHEGADAS_MS = 5 * 60 * 1000;
+
+async function buscarDoSite(caminho) {
+  const r = await fetch(caminho, AbortSignal.timeout ? { signal: AbortSignal.timeout(20000) } : {});
+  if (!r.headers.get('X-Intermediario')) throw new Error('so-na-vercel');
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.erro || `HTTP ${r.status}`);
+  return j;
+}
+
+function desenharAeroportos() {
+  camadaAeroportos.clearLayers();
+  const z = mapa.getZoom();
+  if (z < 5) return;
+  const area = mapa.getBounds().pad(0.1);
+  for (const a of aeroportos) {
+    // Com o mapa afastado, só os grandes; os médios aparecem ao aproximar.
+    if ((a.tipo === 'medio' && z < 7) || !area.contains([a.lat, a.lon])) continue;
+    L.marker([a.lat, a.lon], {
+      icon: L.divIcon({ className: '', html: `<div class="aero ${a.tipo}">${escapar(a.iata)}</div>`, iconSize: [40, 20], iconAnchor: [20, 10] }),
+      zIndexOffset: -1000,
+      title: a.nome,
+    }).on('click', () => abrirAeroporto(a)).addTo(camadaAeroportos);
+  }
+}
+
+buscarDoSite('/api/aeroportos').then(lista => { aeroportos = lista; desenharAeroportos(); }).catch(() => {});
+mapa.on('moveend', desenharAeroportos);
+
+function textoAtraso(min) {
+  if (min == null) return '';
+  if (min >= 5) return `<span class="atrasado">${min} min de atraso</span>`;
+  if (min <= -5) return `<span class="adiantado">${-min} min adiantado</span>`;
+  return '<span class="adiantado">no horário</span>';
+}
+
+function htmlChegada(v) {
+  const origem = v.origem.cidade ? `${v.origem.cidade}${v.origem.iata ? ` (${v.origem.iata})` : ''}` : (v.origem.iata || '—');
+  const aviao = [v.modelo, v.matricula, v.carga && 'carga'].filter(Boolean).join(' · ');
+  const noMapa = v.hex && marcadores.has(v.hex);
+  return `<li${noMapa ? ` data-id="${escapar(v.hex)}" class="no-mapa"` : ''}>
+    <div class="cab"><strong>${escapar(v.numero)}</strong> <span>${escapar(v.companhia)}</span>
+      <span class="hora">${v.pousou ? `pousou ${escapar(v.pousou)}` : escapar(v.status)}</span></div>
+    <div class="sub">de ${escapar(origem)}${v.previsto ? ` · previsto ${escapar(v.previsto)}` : ''} · ${textoAtraso(v.atrasoMin)}</div>
+    ${aviao ? `<div class="sub">${escapar(aviao)}${noMapa ? ' · <b>ver no mapa ›</b>' : ''}</div>` : ''}
+  </li>`;
+}
+
+async function abrirAeroporto(a) {
+  selecionar(null);
+  aeroportoAberto = a.icao;
+  $('pCallsign').textContent = `${a.cidade || a.nome} (${a.iata})`;
+  $('pRota').textContent = a.nome;
+  $('pFoto').hidden = true;
+  $('pDados').hidden = true;
+  $('pLink').hidden = true;
+  const lista = $('pLista');
+  lista.hidden = false;
+  lista.innerHTML = '<h3>Últimas chegadas</h3><p class="nota">Buscando…</p>';
+  $('painel').classList.remove('oculto');
+
+  try {
+    let c = chegadasEmCache.get(a.icao);
+    if (!c || Date.now() - c.quando > CACHE_CHEGADAS_MS) {
+      c = { quando: Date.now(), dados: await buscarDoSite(`/api/chegadas?icao=${a.icao}`) };
+      chegadasEmCache.set(a.icao, c);
+    }
+    if (aeroportoAberto !== a.icao) return;
+    const voos = c.dados.voos || [];
+    lista.innerHTML = '<h3>Últimas chegadas</h3>' + (voos.length
+      ? `<ol>${voos.map(htmlChegada).join('')}</ol><p class="nota">Horários locais do aeroporto · dados: AeroDataBox</p>`
+      : '<p class="nota">Nenhum voo pousou aqui nas últimas 12 horas.</p>');
+  } catch (e) {
+    if (aeroportoAberto !== a.icao) return;
+    const msg = {
+      'so-na-vercel': 'As chegadas só funcionam na versão publicada na Vercel.',
+      'sem-chave': 'Falta configurar a chave do AeroDataBox na Vercel (variável AERODATABOX_KEY).',
+    }[e.message] || `Não foi possível buscar as chegadas (${e.message}).`;
+    lista.innerHTML = `<h3>Últimas chegadas</h3><p class="nota">${escapar(msg)}</p>`;
+  }
+}
+
+$('pLista').onclick = e => {
+  const id = e.target.closest('[data-id]')?.dataset.id;
+  const m = id && marcadores.get(id);
+  if (!m) return;
+  mapa.setView(m.marker.getLatLng(), Math.max(mapa.getZoom(), 9));
+  selecionar(id);
+};
 
 // --- "Acima de você" -------------------------------------------------------
 
