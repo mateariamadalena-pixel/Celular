@@ -5,7 +5,7 @@
   --accent: #f5b301;
   --panel: rgba(15, 23, 42, .94);
   --perigo: #ef4444;
-  --alt-acima: 150px;
+  --alt-acima: 172px;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
@@ -82,3 +82,12 @@ dialog .recuo { margin-left: 26px; color: var(--muted); }
 dialog select { background: #1e293b; color: var(--fg); border: 1px solid #334155; border-radius: 6px; }
 dialog .nota { color: var(--muted); font-size: 13px; }
 dialog button { background: var(--accent); border: 0; border-radius: 8px; padding: 8px 16px; font-weight: 600; }
+
+/* Rota e foto */
+.rota-painel { color: var(--accent); font-weight: 600; margin: -4px 0 8px; }
+.rota-painel:empty { display: none; }
+.foto { margin: 0 0 10px; }
+.foto img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 10px; background: #1e293b; }
+.foto small { color: var(--muted); font-size: 11px; }
+.painel { max-height: 85vh; overflow-y: auto; }
+.linha.rota { color: var(--accent); font-weight: 600; }
