@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b1220">
+  <title>Radar de Voos</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <strong>✈ Radar de Voos</strong>
+    <input id="busca" type="search" placeholder="Buscar voo (ex: TAM3054)" autocomplete="off">
+    <select id="fonte" title="Fonte dos dados">
+      <option value="adsblol">adsb.lol</option>
+      <option value="opensky">OpenSky</option>
+    </select>
+  </header>
+
+  <div id="mapa"></div>
+
+  <div class="status" id="status">Carregando…</div>
+  <button class="fab" id="btnLocal" title="Minha localização">◎</button>
+
+  <aside class="painel oculto" id="painel">
+    <button class="fechar" id="fechar" aria-label="Fechar">×</button>
+    <h2 id="pCallsign">—</h2>
+    <dl id="pDados"></dl>
+    <a id="pLink" target="_blank" rel="noopener">Ver detalhes da rota ↗</a>
+  </aside>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
