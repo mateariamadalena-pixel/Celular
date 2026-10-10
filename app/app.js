@@ -3,18 +3,58 @@
 
 const INTERVALO_MS = 15000;          // OpenSky anônimo só atualiza a cada ~10 s
 const CENTRO_PADRAO = [-23.55, -46.63]; // São Paulo
+const RAIO_ACIMA_KM = 40;            // área consultada em volta do usuário para o cartão "Acima de você"
 const FT_PARA_M = 0.3048;
 const KT_PARA_KMH = 1.852;
 
+// Códigos de transponder que indicam situação anormal.
+const SQUAWKS_EMERGENCIA = {
+  7500: 'Interferência ilícita (sequestro)',
+  7600: 'Falha de comunicação por rádio',
+  7700: 'Emergência geral',
+};
+const EMERGENCIAS_ADSB = {
+  general: 'Emergência geral', lifeguard: 'Emergência médica', minfuel: 'Combustível mínimo',
+  nordo: 'Falha de comunicação por rádio', unlawful: 'Interferência ilícita (sequestro)', downed: 'Aeronave em pane',
+};
+
+// Prefixo do callsign (código ICAO da companhia) -> nome que as pessoas reconhecem.
+const COMPANHIAS = {
+  TAM: 'LATAM', LAN: 'LATAM', LPE: 'LATAM Peru', LCO: 'LATAM Cargo', GLO: 'GOL', AZU: 'Azul',
+  PTB: 'Passaredo', VOE: 'Voepass', MWM: 'Modern Logistics', TTL: 'Total Linhas Aéreas',
+  AAL: 'American Airlines', UAL: 'United', DAL: 'Delta', AFR: 'Air France', KLM: 'KLM',
+  DLH: 'Lufthansa', BAW: 'British Airways', IBE: 'Iberia', TAP: 'TAP', UAE: 'Emirates',
+  QTR: 'Qatar Airways', THY: 'Turkish Airlines', ARG: 'Aerolíneas Argentinas', AVA: 'Avianca',
+  CMP: 'Copa Airlines', SKU: 'Sky Airline', JAT: 'JetSMART', ETH: 'Ethiopian', ITY: 'ITA Airways',
+  SWR: 'Swiss', AEA: 'Air Europa', ACA: 'Air Canada', FDX: 'FedEx', UPS: 'UPS',
+  FAB: 'Força Aérea Brasileira',
+};
+
+// Código ICAO do tipo -> nome do modelo.
+const MODELOS = {
+  A319: 'Airbus A319', A320: 'Airbus A320', A20N: 'Airbus A320neo', A321: 'Airbus A321',
+  A21N: 'Airbus A321neo', A332: 'Airbus A330-200', A333: 'Airbus A330-300', A339: 'Airbus A330-900neo',
+  A359: 'Airbus A350-900', A35K: 'Airbus A350-1000', A388: 'Airbus A380',
+  B737: 'Boeing 737-700', B738: 'Boeing 737-800', B38M: 'Boeing 737 MAX 8', B739: 'Boeing 737-900',
+  B763: 'Boeing 767-300', B772: 'Boeing 777-200', B77W: 'Boeing 777-300ER', B77L: 'Boeing 777F',
+  B788: 'Boeing 787-8', B789: 'Boeing 787-9', B78X: 'Boeing 787-10', B744: 'Boeing 747-400', B748: 'Boeing 747-8',
+  E190: 'Embraer E190', E195: 'Embraer E195', E295: 'Embraer E195-E2', E175: 'Embraer E175',
+  E145: 'Embraer ERJ-145', E55P: 'Embraer Phenom 300', E50P: 'Embraer Phenom 100',
+  AT72: 'ATR 72', AT75: 'ATR 72-500', AT76: 'ATR 72-600', AT45: 'ATR 42-500', AT46: 'ATR 42-600',
+  C208: 'Cessna Caravan', C172: 'Cessna 172', PC12: 'Pilatus PC-12', BE20: 'King Air 200',
+  AS50: 'Helicóptero Esquilo', EC30: 'Helicóptero H130', R44: 'Helicóptero Robinson R44',
+  R66: 'Helicóptero Robinson R66', A109: 'Helicóptero AW109', A119: 'Helicóptero AW119',
+  S76: 'Helicóptero Sikorsky S-76', EC35: 'Helicóptero H135', B06: 'Helicóptero Bell 206',
+};
+
 // --- Fontes de dados -------------------------------------------------------
-// Cada fonte devolve uma lista no mesmo formato "normalizado".
+// Cada fonte recebe uma área circular { lat, lon, raioKm } e devolve uma lista "normalizada".
 
 const FONTES = {
   // adsb.lol: rede comunitária, gratuita, sem chave. Consulta por raio (milhas náuticas, máx. 250).
-  async adsblol(mapa) {
-    const c = mapa.getCenter();
-    const raioNm = Math.min(250, Math.ceil(c.distanceTo(mapa.getBounds().getNorthEast()) / 1852));
-    const r = await fetch(`https://api.adsb.lol/v2/point/${c.lat.toFixed(4)}/${c.lng.toFixed(4)}/${raioNm}`);
+  async adsblol({ lat, lon, raioKm }) {
+    const raioNm = Math.min(250, Math.max(1, Math.ceil(raioKm / 1.852)));
+    const r = await fetch(`https://api.adsb.lol/v2/point/${lat.toFixed(4)}/${lon.toFixed(4)}/${raioNm}`);
     if (!r.ok) throw new Error(`adsb.lol HTTP ${r.status}`);
     const { ac = [] } = await r.json();
     return ac.filter(a => a.lat != null && a.lon != null).map(a => ({
@@ -31,13 +71,15 @@ const FONTES = {
       modelo: a.t || '',
       pais: '',
       squawk: a.squawk || '',
+      emergencia: EMERGENCIAS_ADSB[a.emergency] || SQUAWKS_EMERGENCIA[a.squawk] || '',
     }));
   },
 
   // OpenSky Network: projeto de pesquisa. Consulta por retângulo; limite diário para uso anônimo.
-  async opensky(mapa) {
-    const b = mapa.getBounds();
-    const q = `lamin=${b.getSouth()}&lomin=${b.getWest()}&lamax=${b.getNorth()}&lomax=${b.getEast()}`;
+  async opensky({ lat, lon, raioKm }) {
+    const dLat = raioKm / 111;
+    const dLon = raioKm / (111 * Math.cos(lat * Math.PI / 180));
+    const q = `lamin=${lat - dLat}&lomin=${lon - dLon}&lamax=${lat + dLat}&lomax=${lon + dLon}`;
     const r = await fetch(`https://opensky-network.org/api/states/all?${q}`);
     if (!r.ok) throw new Error(`OpenSky HTTP ${r.status}`);
     const { states } = await r.json();
@@ -55,9 +97,45 @@ const FONTES = {
       modelo: '',
       pais: s[2] || '',
       squawk: s[14] || '',
+      emergencia: SQUAWKS_EMERGENCIA[s[14]] || '',
     }));
   },
 };
+
+// --- Utilidades ------------------------------------------------------------
+
+const $ = id => document.getElementById(id);
+const fmt = (n, casas = 0) => n == null ? '—' : n.toLocaleString('pt-BR', { maximumFractionDigits: casas });
+const escapar = t => String(t).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+const rad = g => g * Math.PI / 180;
+
+function distanciaKm(a, b) {
+  const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+}
+
+function azimute(a, b) {
+  const y = Math.sin(rad(b.lon - a.lon)) * Math.cos(rad(b.lat));
+  const x = Math.cos(rad(a.lat)) * Math.sin(rad(b.lat)) -
+            Math.sin(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.cos(rad(b.lon - a.lon));
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+const pontoCardeal = g => ['N', 'NE', 'L', 'SE', 'S', 'SO', 'O', 'NO'][Math.round(g / 45) % 8];
+
+function nomeCompanhia(v) {
+  const prefixo = /^[A-Z]{3}\d/.test(v.callsign) ? v.callsign.slice(0, 3) : '';
+  return COMPANHIAS[prefixo] || '';
+}
+
+function nomeAmigavel(v) {
+  const cia = nomeCompanhia(v);
+  const voo = v.callsign || v.matricula || v.id.toUpperCase();
+  return cia ? `${cia} · ${voo}` : voo;
+}
+
+const nomeModelo = v => MODELOS[v.modelo] || v.modelo;
 
 // --- Mapa ------------------------------------------------------------------
 
@@ -70,8 +148,9 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 const marcadores = new Map(); // id -> { marker, dados }
 let selecionado = null;
 let filtro = '';
+let minhaPos = null;          // { lat, lon }
+let marcadorEu = null;
 
-const $ = id => document.getElementById(id);
 const elFonte = $('fonte');
 try { elFonte.value = localStorage.getItem('fonte') || elFonte.value; } catch {}
 
@@ -79,7 +158,8 @@ try { elFonte.value = localStorage.getItem('fonte') || elFonte.value; } catch {}
 const SVG_AVIAO = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" stroke="#000" stroke-width=".6" d="M12 2c.8 0 1.3.9 1.3 2v5l7.7 4.5v2l-7.7-2.3V18l2.2 1.7V21L12 20l-3.5 1v-1.3l2.2-1.7v-4.8L3 15.5v-2L10.7 9V4c0-1.1.5-2 1.3-2z"/></svg>';
 
 function icone(v) {
-  const classes = ['aviao', v.noSolo && 'solo', v.id === selecionado && 'sel'].filter(Boolean).join(' ');
+  const classes = ['aviao', v.noSolo && 'solo', v.emergencia && 'emerg', v.id === selecionado && 'sel']
+    .filter(Boolean).join(' ');
   return L.divIcon({
     className: '',
     html: `<div class="${classes}" style="transform:rotate(${v.rumo || 0}deg)">${SVG_AVIAO}</div>`,
@@ -112,13 +192,14 @@ function desenhar(lista) {
   for (const [id, m] of marcadores) {
     if (!vistos.has(id)) { mapa.removeLayer(m.marker); marcadores.delete(id); }
   }
-  if (selecionado) mostrarPainel(marcadores.get(selecionado)?.dados);
+  if (selecionado) mostrarPainel(dadosDe(selecionado));
   return vistos.size;
 }
 
 // --- Painel de detalhes ----------------------------------------------------
 
-const fmt = (n, casas = 0) => n == null ? '—' : n.toLocaleString('pt-BR', { maximumFractionDigits: casas });
+// O avião pode estar no cartão "Acima de você" sem estar na área visível do mapa.
+const dadosDe = id => marcadores.get(id)?.dados || listaPerto.find(v => v.id === id);
 
 function selecionar(id) {
   const anterior = selecionado;
@@ -127,22 +208,24 @@ function selecionar(id) {
     const m = k && marcadores.get(k);
     if (m) m.marker.setIcon(icone(m.dados));
   }
-  mostrarPainel(marcadores.get(id)?.dados);
+  mostrarPainel(id && dadosDe(id));
 }
 
 function mostrarPainel(v) {
   if (!v) { $('painel').classList.add('oculto'); return; }
-  $('pCallsign').textContent = v.callsign || v.id.toUpperCase();
+  $('pCallsign').textContent = nomeAmigavel(v);
   const linhas = [
-    ['Altitude', v.noSolo ? 'No solo' : `${fmt(v.altitudeM)} m (${fmt(v.altitudeM && v.altitudeM / FT_PARA_M)} ft)`],
+    ['Situação', v.emergencia || (v.noSolo ? 'No solo' : 'Em voo')],
+    ['Altitude', v.noSolo ? '—' : `${fmt(v.altitudeM)} m (${fmt(v.altitudeM && v.altitudeM / FT_PARA_M)} ft)`],
     ['Velocidade', `${fmt(v.velocidadeKmh)} km/h`],
-    ['Rumo', `${fmt(v.rumo)}°`],
+    ['Rumo', `${fmt(v.rumo)}° (${pontoCardeal(v.rumo || 0)})`],
     ['Razão vertical', v.subidaMs == null ? '—' : `${fmt(v.subidaMs, 1)} m/s`],
-    ['Modelo', v.modelo || '—'],
+    ['Modelo', nomeModelo(v) || '—'],
     ['Matrícula', v.matricula || '—'],
     ['País de registro', v.pais || '—'],
     ['Transponder', `${v.id.toUpperCase()}${v.squawk ? ` · squawk ${v.squawk}` : ''}`],
   ];
+  if (minhaPos) linhas.splice(1, 0, ['Distância de você', `${fmt(distanciaKm(minhaPos, v), 1)} km`]);
   $('pDados').innerHTML = '';
   for (const [k, val] of linhas) {
     const dt = document.createElement('dt'); dt.textContent = k;
@@ -155,31 +238,212 @@ function mostrarPainel(v) {
 
 $('fechar').onclick = () => { selecionar(null); };
 
+// --- "Acima de você" -------------------------------------------------------
+
+let listaPerto = [];
+let rumoCelular = null; // para onde o topo do celular aponta (0° = norte), quando a bússola está ativa
+
+function maisProximos() {
+  if (!minhaPos) return [];
+  return listaPerto
+    .filter(v => !v.noSolo)
+    .map(v => ({ v, km: distanciaKm(minhaPos, v), az: azimute(minhaPos, v) }))
+    .sort((a, b) => a.km - b.km)
+    .slice(0, 4);
+}
+
+function descreverCeu(km, altitudeM) {
+  if (altitudeM == null) return '';
+  // Ângulo de elevação: quão alto no céu você precisa olhar.
+  const elev = Math.atan2(altitudeM / 1000, km) * 180 / Math.PI;
+  if (elev > 70) return 'bem em cima de você';
+  if (elev > 35) return `olhe para cima, ${Math.round(elev)}° acima do horizonte`;
+  if (elev > 10) return `${Math.round(elev)}° acima do horizonte`;
+  return 'perto do horizonte';
+}
+
+function renderizarAcima() {
+  const el = $('acimaConteudo');
+  if (!minhaPos) {
+    el.className = 'vazio';
+    el.textContent = 'Ative a localização para ver o avião que está passando sobre você.';
+    return;
+  }
+  const lista = maisProximos();
+  if (!lista.length) {
+    el.className = 'vazio';
+    el.textContent = `Nenhum avião em voo num raio de ${RAIO_ACIMA_KM} km agora.`;
+    return;
+  }
+  const [{ v, km, az }, ...resto] = lista;
+  // Com bússola, a seta aponta para o avião em relação ao celular; sem ela, em relação ao norte.
+  const giro = rumoCelular == null ? az : az - rumoCelular;
+  const detalhes = [nomeModelo(v), v.altitudeM != null && `${fmt(v.altitudeM)} m de altitude`].filter(Boolean).join(' · ');
+  el.className = '';
+  el.innerHTML = `
+    <div class="destaque${v.emergencia ? ' emerg' : ''}" data-id="${escapar(v.id)}">
+      <div class="seta"><i style="transform:rotate(${giro}deg)"><svg viewBox="0 0 24 24" width="34" height="34"><path fill="currentColor" d="M12 2l7 18-7-4-7 4z"/></svg></i><small>${rumoCelular == null ? 'N ↑' : ''}</small></div>
+      <div>
+        <div class="nome">${escapar(nomeAmigavel(v))}</div>
+        ${v.emergencia ? `<div class="linha">⚠ ${escapar(v.emergencia)}</div>` : ''}
+        <div class="linha">${escapar(detalhes)}</div>
+        <div class="linha">${fmt(km, 1)} km a ${pontoCardeal(az)} · ${escapar(descreverCeu(km, v.altitudeM))}</div>
+      </div>
+    </div>
+    <div class="outros">${resto.map(o =>
+      `<button data-id="${escapar(o.v.id)}">${escapar(o.v.callsign || o.v.id.toUpperCase())} ${fmt(o.km, 0)} km</button>`).join('')}</div>`;
+}
+
+$('acimaConteudo').onclick = e => {
+  const id = e.target.closest('[data-id]')?.dataset.id;
+  const v = id && dadosDe(id);
+  if (!v) return;
+  mapa.setView([v.lat, v.lon], Math.max(mapa.getZoom(), 10));
+  selecionar(id);
+};
+
+// Bússola: no iPhone é preciso pedir permissão a partir de um toque.
+async function ativarBussola() {
+  const DOE = window.DeviceOrientationEvent;
+  if (!DOE) return aviso('Este aparelho não tem bússola.', 'info');
+  if (typeof DOE.requestPermission === 'function') {
+    try { if (await DOE.requestPermission() !== 'granted') return; } catch { return; }
+  }
+  const aoGirar = e => {
+    let r = null;
+    if (e.webkitCompassHeading != null) r = e.webkitCompassHeading;  // iOS
+    else if (e.absolute && e.alpha != null) r = 360 - e.alpha;      // Android
+    if (r == null) return;
+    rumoCelular = r;
+    const seta = document.querySelector('.seta i');
+    const destaque = maisProximos()[0];
+    if (seta && destaque) seta.style.transform = `rotate(${destaque.az - r}deg)`;
+    const n = document.querySelector('.seta small');
+    if (n) n.textContent = '';
+  };
+  window.addEventListener('deviceorientationabsolute', aoGirar);
+  window.addEventListener('deviceorientation', aoGirar);
+  $('btnBussola').classList.add('ativo');
+  aviso('Bússola ativa: a seta aponta para o avião. Segure o celular deitado.', 'info');
+}
+$('btnBussola').onclick = ativarBussola;
+
+// --- Alertas ---------------------------------------------------------------
+
+const CONFIG_PADRAO = { perto: false, raioKm: 5, emergencias: true };
+let config = { ...CONFIG_PADRAO };
+try { Object.assign(config, JSON.parse(localStorage.getItem('alertas') || '{}')); } catch {}
+
+const jaAvisados = new Map(); // "tipo:id" -> horário do último aviso
+const REPETIR_APOS_MS = 30 * 60 * 1000;
+
+function atualizarBotaoAlertas() {
+  $('btnAlertas').classList.toggle('ativo', config.perto || config.emergencias);
+}
+
+$('btnAlertas').onclick = () => {
+  $('alPerto').checked = config.perto;
+  $('alRaio').value = String(config.raioKm);
+  $('alEmergencia').checked = config.emergencias;
+  $('dlgAlertas').showModal();
+};
+
+$('dlgAlertas').addEventListener('close', async () => {
+  config = { perto: $('alPerto').checked, raioKm: Number($('alRaio').value), emergencias: $('alEmergencia').checked };
+  try { localStorage.setItem('alertas', JSON.stringify(config)); } catch {}
+  atualizarBotaoAlertas();
+  if ((config.perto || config.emergencias) && 'Notification' in window && Notification.permission === 'default') {
+    await Notification.requestPermission().catch(() => {});
+  }
+  if (config.perto && !minhaPos) aviso('Ative a localização para receber avisos de aviões por perto.', 'info');
+});
+
+let timerAviso;
+function aviso(texto, tipo = '') {
+  const t = $('toast');
+  t.textContent = texto;
+  t.className = `toast ${tipo}`;
+  clearTimeout(timerAviso);
+  timerAviso = setTimeout(() => t.classList.add('oculto'), 6000);
+}
+
+async function notificar(chave, titulo, corpo, emergencia) {
+  const agora = Date.now();
+  if (agora - (jaAvisados.get(chave) || 0) < REPETIR_APOS_MS) return;
+  jaAvisados.set(chave, agora);
+
+  aviso(`${titulo} — ${corpo}`, emergencia ? '' : 'info');
+  if (navigator.vibrate) navigator.vibrate(emergencia ? [300, 100, 300, 100, 300] : 200);
+  // Notificação do sistema só faz sentido quando o app não está na tela.
+  if (!document.hidden || !('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    const reg = await navigator.serviceWorker?.ready;
+    const opcoes = { body: corpo, tag: chave, icon: 'icon.svg', badge: 'icon.svg' };
+    if (reg) await reg.showNotification(titulo, opcoes);
+    else new Notification(titulo, opcoes);
+  } catch {}
+}
+
+function verificarAlertas(lista) {
+  for (const v of lista) {
+    const km = minhaPos ? distanciaKm(minhaPos, v) : null;
+    if (config.emergencias && v.emergencia) {
+      const onde = km == null ? '' : ` a ${fmt(km, 0)} km de você`;
+      notificar(`emerg:${v.id}`, `⚠ ${v.emergencia}`, `${nomeAmigavel(v)}${onde}`, true);
+    }
+    if (config.perto && km != null && !v.noSolo && km <= config.raioKm) {
+      const altura = v.altitudeM != null ? ` a ${fmt(v.altitudeM)} m de altitude` : '';
+      notificar(`perto:${v.id}`, `✈ ${nomeAmigavel(v)} passando perto`,
+        `${nomeModelo(v) || 'Avião'}${altura}, ${fmt(km, 1)} km a ${pontoCardeal(azimute(minhaPos, v))}`, false);
+    }
+  }
+}
+
 // --- Atualização periódica -------------------------------------------------
 
 let ultimaLista = [];
 let timer = null;
 let emAndamento = false;
+let repetir = false; // pediram atualização enquanto outra estava em andamento (ex.: chegou a localização)
+
+function areaDoMapa() {
+  const c = mapa.getCenter();
+  return { lat: c.lat, lon: c.lng, raioKm: c.distanceTo(mapa.getBounds().getNorthEast()) / 1000 };
+}
 
 async function atualizar() {
-  if (emAndamento) return;
+  if (emAndamento) { repetir = true; return; }
   emAndamento = true;
-  const fonte = elFonte.value;
+  repetir = false;
+  const fonte = FONTES[elFonte.value];
   try {
-    ultimaLista = await FONTES[fonte](mapa);
+    const [doMapa, perto] = await Promise.all([
+      fonte(areaDoMapa()),
+      minhaPos ? fonte({ ...minhaPos, raioKm: RAIO_ACIMA_KM }) : [],
+    ]);
+    ultimaLista = doMapa;
+    listaPerto = perto;
     const n = desenhar(ultimaLista);
+    renderizarAcima();
+    const unicos = new Map([...doMapa, ...perto].map(v => [v.id, v]));
+    verificarAlertas(unicos.values());
     $('status').textContent = `${n} aviões · ${new Date().toLocaleTimeString('pt-BR')} · ${elFonte.selectedOptions[0].text}`;
   } catch (e) {
     $('status').textContent = `Erro ao buscar dados (${e.message}). Tentando de novo…`;
   } finally {
     emAndamento = false;
+    if (repetir) atualizar();
   }
 }
 
 function agendar() {
   clearInterval(timer);
   atualizar();
-  timer = setInterval(() => { if (!document.hidden) atualizar(); }, INTERVALO_MS);
+  // Em segundo plano só continua buscando dados se houver alertas que possam virar notificação.
+  timer = setInterval(() => {
+    const notifica = 'Notification' in window && Notification.permission === 'granted';
+    if (!document.hidden || (notifica && (config.perto || config.emergencias))) atualizar();
+  }, INTERVALO_MS);
 }
 
 // Ao mover o mapa, espera o usuário parar antes de buscar a nova área.
@@ -200,18 +464,28 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) atua
 
 // --- Localização do usuário ------------------------------------------------
 
+function novaPosicao(p, centralizar) {
+  const primeira = !minhaPos;
+  minhaPos = { lat: p.coords.latitude, lon: p.coords.longitude };
+  const ll = [minhaPos.lat, minhaPos.lon];
+  if (marcadorEu) marcadorEu.setLatLng(ll);
+  else marcadorEu = L.circleMarker(ll, { radius: 7, color: '#fff', weight: 2, fillColor: '#38bdf8', fillOpacity: 1 }).addTo(mapa);
+  if (centralizar || primeira) mapa.setView(ll, Math.max(mapa.getZoom(), 9));
+  if (primeira) atualizar();
+}
+
 function irParaMinhaLocalizacao() {
   if (!navigator.geolocation) return;
-  navigator.geolocation.getCurrentPosition(
-    p => mapa.setView([p.coords.latitude, p.coords.longitude], 9),
-    () => {},
-    { timeout: 8000 },
-  );
+  navigator.geolocation.getCurrentPosition(p => novaPosicao(p, true), () => {}, { timeout: 8000 });
 }
 $('btnLocal').onclick = irParaMinhaLocalizacao;
 
 // --- Início ----------------------------------------------------------------
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
-irParaMinhaLocalizacao();
+atualizarBotaoAlertas();
+if (navigator.geolocation) {
+  navigator.geolocation.watchPosition(p => novaPosicao(p, false), () => renderizarAcima(),
+    { enableHighAccuracy: false, maximumAge: 60000 });
+}
 agendar();

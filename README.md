@@ -37,6 +37,22 @@ inicial como se fosse um app, sem precisar de loja ou de compilar nada.
 
 O Flightradar24 também tem API, mas ela é paga.
 
+### O diferencial: "Acima de você"
+
+Na parte de baixo da tela fica sempre o avião mais próximo de você, em linguagem simples:
+companhia e voo ("LATAM · TAM3054"), modelo ("Airbus A320"), altitude, distância, direção
+(N, NE, L…) e quanto você precisa olhar para cima ("28° acima do horizonte").
+
+- **Seta/bússola (🧭)**: ao ativar, a seta passa a apontar para o avião de acordo com a direção
+  em que o celular está virado. Sem bússola, a seta é relativa ao norte.
+- **Alertas (🔔)**:
+  - *Avião passando perto*: avisa quando um avião em voo chega a 2, 5 ou 10 km de você.
+  - *Emergências*: avisa quando algum avião na área declara emergência (squawk 7700),
+    falha de rádio (7600) ou sequestro (7500). Esses aviões aparecem em vermelho no mapa.
+  - Os avisos aparecem na tela, vibram o celular e, com o app em segundo plano, viram
+    notificação do sistema. Como não há servidor, eles só funcionam enquanto o app estiver
+    aberto ou em segundo plano recente (o celular pode suspender o app depois de um tempo).
+
 ### Funcionalidades
 
 - Mapa (OpenStreetMap) com os aviões da área visível, atualizado a cada 15 s
@@ -61,5 +77,5 @@ Para testar no computador: `cd app && python3 -m http.server 8000` e abra `http:
 
 - Mostrar origem/destino (exige uma base de rotas, ex.: adsb.lol `/api/0/routeset`)
 - Rastro (trilha) do avião
-- Alertas quando um voo específico se aproximar
+- Notificações mesmo com o app fechado (exige um pequeno servidor com Web Push)
 - Empacotar como app nativo para as lojas com [Capacitor](https://capacitorjs.com)
