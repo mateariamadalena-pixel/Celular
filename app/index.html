@@ -26,6 +26,34 @@
   <div class="status" id="status">Carregando…</div>
   <button class="fab" id="btnLocal" title="Minha localização">◎</button>
 
+  <section class="acima" id="acima">
+    <header>
+      <span>Acima de você</span>
+      <button id="btnBussola" title="Usar a bússola do celular">🧭</button>
+      <button id="btnAlertas" title="Alertas">🔔</button>
+    </header>
+    <div id="acimaConteudo" class="vazio">Ative a localização para ver o avião que está passando sobre você.</div>
+  </section>
+
+  <div class="toast oculto" id="toast"></div>
+
+  <dialog id="dlgAlertas">
+    <form method="dialog">
+      <h3>Alertas</h3>
+      <label><input type="checkbox" id="alPerto"> Avisar quando um avião passar perto de mim</label>
+      <label class="recuo">Distância:
+        <select id="alRaio">
+          <option value="2">2 km</option>
+          <option value="5">5 km</option>
+          <option value="10">10 km</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="alEmergencia"> Avisar emergências (código 7700, 7600, 7500)</label>
+      <p class="nota">Os avisos funcionam enquanto o app estiver aberto ou em segundo plano recente.</p>
+      <button value="ok">Salvar</button>
+    </form>
+  </dialog>
+
   <aside class="painel oculto" id="painel">
     <button class="fechar" id="fechar" aria-label="Fechar">×</button>
     <h2 id="pCallsign">—</h2>

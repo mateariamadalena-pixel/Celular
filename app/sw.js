@@ -1,6 +1,6 @@
 // Service worker mínimo: guarda a "casca" do app para abrir rápido e permitir instalação.
 // Os dados de voo nunca são cacheados (sempre vêm da rede).
-const CACHE = 'radar-v1';
+const CACHE = 'radar-v2';
 const CASCA = ['./', 'index.html', 'style.css', 'app.js', 'icon.svg', 'manifest.webmanifest'];
 
 self.addEventListener('install', e => {
@@ -17,4 +17,11 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return;
   e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+});
+
+// Tocar numa notificação de alerta abre (ou traz para a frente) o app.
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window' }).then(cs =>
+    cs.length ? cs[0].focus() : self.clients.openWindow('./')));
 });
