@@ -14,7 +14,7 @@
 <body>
   <header class="topbar">
     <strong>✈ Radar de Voos</strong>
-    <input id="busca" type="search" placeholder="Buscar voo (ex: TAM3054)" autocomplete="off">
+    <input id="busca" type="search" placeholder="Buscar ou seguir voo (ex: G3 1280)" autocomplete="off" enterkeyhint="go">
     <select id="fonte" title="Fonte dos dados">
       <option value="auto">Automático</option>
       <option value="adsblol">adsb.lol</option>
@@ -25,6 +25,15 @@
   </header>
 
   <div id="mapa"></div>
+
+  <div class="seguindo" id="seguindo" hidden>
+    <div class="seg-texto" id="segTexto">
+      <div class="seg-titulo"></div>
+      <div class="seg-linha"></div>
+    </div>
+    <button class="seg-whats" id="segWhats" title="Mandar o link deste voo no WhatsApp">WhatsApp</button>
+    <button class="seg-parar" id="segParar" aria-label="Parar de seguir">×</button>
+  </div>
 
   <div class="status" id="status">Carregando…</div>
   <button class="fab" id="btnLocal" title="Minha localização">◎</button>
@@ -64,6 +73,7 @@
     <div class="foto" id="pFoto" hidden></div>
     <dl id="pDados"></dl>
     <div id="pLista" hidden></div>
+    <button class="btn-seguir" id="pSeguir">⭐ Seguir este voo</button>
     <a id="pLink" target="_blank" rel="noopener">Ver trajeto no mapa do adsb.lol ↗</a>
   </aside>
 

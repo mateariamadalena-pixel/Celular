@@ -8,6 +8,7 @@
   --alt-acima: 172px;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; } /* senão regras com display (flex/block) mostram o elemento */
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
   font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 #mapa { position: absolute; inset: 52px 0 0 0; }
@@ -121,3 +122,22 @@ dialog button { background: var(--accent); border: 0; border-radius: 8px; paddin
 .miniatura img { display: block; width: 84px; height: 56px; object-fit: cover; border-radius: 8px; }
 .miniatura small { display: block; font-size: 9px; color: var(--muted); line-height: 1.2; margin-top: 2px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Abas do aeroporto */
+.abas { display: flex; gap: 6px; margin: 4px 0 8px; }
+.abas button { flex: 1; background: #1e293b; color: var(--muted); border: 1px solid #334155; border-radius: 8px;
+  padding: 6px; font-size: 14px; font-weight: 600; }
+.abas button.ativa { color: var(--fg); border-color: var(--accent); }
+
+/* Voo seguido */
+.aviao.seg { color: #c084fc; }
+.seguindo { position: fixed; top: 52px; left: 0; right: 0; z-index: 1050; display: flex; align-items: center;
+  gap: 8px; padding: 8px 12px; background: #312e81; color: #fff; box-shadow: 0 2px 8px #0006; }
+.seg-texto { flex: 1; min-width: 0; cursor: pointer; }
+.seg-titulo { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seg-linha { font-size: 13px; color: #c7d2fe; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seg-whats { background: #25d366; color: #fff; border: 0; border-radius: 8px; padding: 6px 10px; font-weight: 700; font-size: 13px; }
+.seg-parar { background: none; border: 0; color: #fff; font-size: 24px; line-height: 1; padding: 0 4px; }
+body.com-seguido .status, body.com-seguido .toast { top: 116px; }
+.btn-seguir { display: block; width: 100%; margin: 0 0 10px; background: #312e81; color: #fff; border: 0;
+  border-radius: 8px; padding: 9px; font-size: 15px; font-weight: 600; }
