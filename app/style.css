@@ -91,3 +91,20 @@ dialog button { background: var(--accent); border: 0; border-radius: 8px; paddin
 .foto small { color: var(--muted); font-size: 11px; }
 .painel { max-height: 85vh; overflow-y: auto; }
 .linha.rota { color: var(--accent); font-weight: 600; }
+
+/* Aeroportos */
+.aero { font: 600 11px/18px system-ui, sans-serif; text-align: center; color: #fff; background: #1d4ed8;
+  border: 1px solid #fff; border-radius: 6px; box-shadow: 0 1px 4px #0006; }
+.aero.medio { background: #475569; font-size: 10px; }
+#pLista h3 { margin: 4px 0 8px; font-size: 15px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+#pLista ol { list-style: none; margin: 0; padding: 0; }
+#pLista li { padding: 8px 0; border-top: 1px solid #1e293b; }
+#pLista li.no-mapa { cursor: pointer; }
+#pLista .cab { display: flex; gap: 6px; align-items: baseline; }
+#pLista .cab span { color: var(--muted); font-size: 13px; }
+#pLista .cab .hora { margin-left: auto; color: var(--fg); font-weight: 600; white-space: nowrap; }
+#pLista .sub { color: var(--muted); font-size: 13px; }
+#pLista .sub b { color: var(--accent); font-weight: 600; }
+#pLista .nota { color: var(--muted); font-size: 13px; }
+.atrasado { color: #f87171; }
+.adiantado { color: #4ade80; }

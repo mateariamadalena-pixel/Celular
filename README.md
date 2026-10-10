@@ -89,6 +89,31 @@ fontes diretamente (e pode não funcionar).
    ou em `https://<nome-do-projeto>.vercel.app/app/` se for a raiz do repositório. O intermediário
    funciona nos dois casos. Cada mudança no `main` atualiza o site.
 
+### Aeroportos e últimas chegadas
+
+Os aeroportos com voos comerciais aparecem no mapa com o código IATA (os grandes a partir do zoom 5,
+os médios a partir do 7). Tocando num aeroporto, o app mostra os **últimos 10 voos que pousaram**
+nas últimas 12 horas: número do voo, companhia, origem, horário previsto e real, atraso, modelo e
+matrícula. Se o avião ainda estiver no mapa, "ver no mapa ›" leva até ele.
+
+- Lista de aeroportos: [OurAirports](https://ourairports.com/data/) (domínio público), filtrada
+  por `api/aeroportos.js`.
+- Chegadas: [AeroDataBox](https://aerodatabox.com) via RapidAPI, por `api/chegadas.js`. Precisa de
+  uma chave (o plano gratuito tem um limite mensal; cada aeroporto fica 10 minutos em cache).
+
+#### Configurar a chave do AeroDataBox
+
+1. Crie uma conta em https://rapidapi.com e abra a página do **AeroDataBox**
+   (https://rapidapi.com/aedbx-aedbx/api/aerodatabox).
+2. Em **Pricing**, assine o plano gratuito (**Basic**).
+3. Na aba **Endpoints**, copie o valor de **X-RapidAPI-Key**.
+4. Na Vercel: projeto → **Settings → Environment Variables** → nome `AERODATABOX_KEY`, cole a
+   chave como valor e salve.
+5. Em **Deployments**, no deploy mais recente, toque em **⋯ → Redeploy** (a chave só vale a partir
+   de um deploy novo).
+
+A chave fica só na Vercel; ela nunca vai para o código nem para o navegador.
+
 ### Como usar no celular
 
 Para instalar como app, o navegador exige HTTPS. O jeito mais simples é o GitHub Pages:
