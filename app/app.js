@@ -270,27 +270,37 @@ function buscarRota(v) {
   return buscandoRota.get(cs);
 }
 
-function buscarFoto(v) {
-  const id = v.id;
-  if (fotos.has(id)) return Promise.resolve(fotos.get(id));
-  if (!buscandoFoto.has(id)) {
-    const planespotters = buscarJson('Planespotters', `https://api.planespotters.net/pub/photos/hex/${encodeURIComponent(id)}`)
+// Busca pelo código do transponder (hex) ou, se não houver, pela matrícula (ex.: PR-GUT).
+function buscarFoto({ id, matricula }) {
+  const planespottersUrl = id ? `hex/${encodeURIComponent(id)}` : matricula && `reg/${encodeURIComponent(matricula)}`;
+  if (!planespottersUrl) return Promise.resolve(null);
+  const chave = id || `reg:${matricula}`;
+  if (fotos.has(chave)) return Promise.resolve(fotos.get(chave));
+  if (!buscandoFoto.has(chave)) {
+    const planespotters = buscarJson('Planespotters', `https://api.planespotters.net/pub/photos/${planespottersUrl}`)
       .then(j => {
         const f = j?.photos?.[0];
-        return f && { src: (f.thumbnail_large || f.thumbnail).src, link: f.link, credito: `Foto: ${f.photographer} · Planespotters.net` };
+        return f && {
+          src: (f.thumbnail_large || f.thumbnail).src,
+          mini: (f.thumbnail || f.thumbnail_large).src,
+          link: f.link,
+          fotografo: f.photographer,
+          credito: `Foto: ${f.photographer} · Planespotters.net`,
+        };
       })
       .catch(() => null);
-    buscandoFoto.set(id, planespotters
-      .then(f => f || buscarJson('adsbdb', `https://api.adsbdb.com/v0/aircraft/${encodeURIComponent(id)}`)
+    // O adsbdb aceita tanto o hex quanto a matrícula.
+    buscandoFoto.set(chave, planespotters
+      .then(f => f || buscarJson('adsbdb', `https://api.adsbdb.com/v0/aircraft/${encodeURIComponent(id || matricula)}`)
         .then(j => {
           const a = j?.response?.aircraft;
           const src = a?.url_photo_thumbnail || a?.url_photo;
-          return src && { src, link: a.url_photo || src, credito: 'Foto: airport-data.com' };
+          return src && { src: a.url_photo || src, mini: src, link: a.url_photo || src, fotografo: 'airport-data.com', credito: 'Foto: airport-data.com' };
         })
         .catch(() => null))
-      .then(f => { fotos.set(id, f || null); buscandoFoto.delete(id); return f || null; }));
+      .then(f => { fotos.set(chave, f || null); buscandoFoto.delete(chave); return f || null; }));
   }
-  return buscandoFoto.get(id);
+  return buscandoFoto.get(chave);
 }
 
 const textoRota = (r, comCodigo) => r
@@ -420,11 +430,14 @@ function htmlChegada(v) {
   const aviao = [v.modelo, v.matricula, v.carga && 'carga'].filter(Boolean).join(' · ');
   const noMapa = v.hex && marcadores.has(v.hex);
   return `<li${noMapa ? ` data-id="${escapar(v.hex)}" class="no-mapa"` : ''}>
+    <div class="miniatura" data-hex="${escapar(v.hex)}" data-reg="${escapar(v.matricula)}">${SVG_AVIAO}</div>
+    <div class="info">
     <div class="cab"><strong>${escapar(v.numero)}</strong> <span>${escapar(v.companhia)}</span>
       <span class="hora">${v.pousou ? `pousou ${escapar(v.pousou)}` : `previsto ${escapar(v.previsto)}`}</span></div>
     <div class="sub">de ${escapar(origem)}${v.pousou && v.previsto ? ` · previsto ${escapar(v.previsto)}` : ''}${
       v.pousou ? ` · ${textoAtraso(v.atrasoMin)}` : (v.confirmado ? '' : ' · <span class="sem-conf">pouso não confirmado</span>')}</div>
     ${aviao ? `<div class="sub">${escapar(aviao)}${noMapa ? ' · <b>ver no mapa ›</b>' : ''}</div>` : ''}
+    </div>
   </li>`;
 }
 
@@ -452,6 +465,7 @@ async function abrirAeroporto(a) {
     lista.innerHTML = '<h3>Últimas chegadas</h3>' + (voos.length
       ? `<ol>${voos.map(htmlChegada).join('')}</ol><p class="nota">Horários locais do aeroporto · dados: AeroDataBox</p>`
       : '<p class="nota">Nenhum voo pousou aqui nas últimas 12 horas.</p>');
+    preencherMiniaturas(lista, a.icao);
   } catch (e) {
     if (aeroportoAberto !== a.icao) return;
     const msg = {
@@ -462,7 +476,28 @@ async function abrirAeroporto(a) {
   }
 }
 
+// As fotos chegam uma a uma; enquanto isso (ou se não houver foto) fica o desenho do avião.
+function preencherMiniaturas(lista, icao) {
+  for (const el of lista.querySelectorAll('.miniatura')) {
+    buscarFoto({ id: el.dataset.hex, matricula: el.dataset.reg }).then(f => {
+      if (!f || aeroportoAberto !== icao) return;
+      const a = document.createElement('a');
+      a.href = f.link; a.target = '_blank'; a.rel = 'noopener';
+      const img = document.createElement('img');
+      img.src = f.mini; img.alt = `Foto da aeronave ${el.dataset.reg}`; img.loading = 'lazy';
+      img.referrerPolicy = 'no-referrer';
+      img.onerror = () => a.remove();
+      const credito = document.createElement('small');
+      credito.textContent = `© ${f.fotografo}`;
+      a.append(img, credito);
+      el.replaceChildren(a);
+      el.classList.add('com-foto');
+    });
+  }
+}
+
 $('pLista').onclick = e => {
+  if (e.target.closest('a')) return; // tocar na foto abre a página dela
   const id = e.target.closest('[data-id]')?.dataset.id;
   const m = id && marcadores.get(id);
   if (!m) return;

@@ -94,7 +94,8 @@ fontes diretamente (e pode não funcionar).
 Os aeroportos com voos comerciais aparecem no mapa com o código IATA (os grandes a partir do zoom 5,
 os médios a partir do 7). Tocando num aeroporto, o app mostra os **últimos 10 voos que pousaram**
 nas últimas 12 horas: número do voo, companhia, origem, horário previsto e real, atraso, modelo e
-matrícula. Se o avião ainda estiver no mapa, "ver no mapa ›" leva até ele.
+matrícula, com a foto da aeronave ao lado (pela matrícula ou pelo transponder). Se o avião
+ainda estiver no mapa, "ver no mapa ›" leva até ele.
 
 - Lista de aeroportos: [OurAirports](https://ourairports.com/data/) (domínio público), filtrada
   por `api/aeroportos.js`.

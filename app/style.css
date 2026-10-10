@@ -109,3 +109,15 @@ dialog button { background: var(--accent); border: 0; border-radius: 8px; paddin
 .atrasado { color: #f87171; }
 .adiantado { color: #4ade80; }
 .sem-conf { color: var(--muted); font-style: italic; }
+
+/* Miniatura da aeronave nas chegadas */
+#pLista li { display: flex; gap: 10px; align-items: flex-start; }
+#pLista .info { flex: 1; min-width: 0; }
+.miniatura { flex: none; width: 84px; height: 56px; border-radius: 8px; background: #1e293b;
+  display: grid; place-items: center; color: #475569; overflow: hidden; }
+.miniatura svg { width: 26px; height: 26px; }
+.miniatura.com-foto { height: auto; background: none; }
+.miniatura a { display: block; text-decoration: none; }
+.miniatura img { display: block; width: 84px; height: 56px; object-fit: cover; border-radius: 8px; }
+.miniatura small { display: block; font-size: 9px; color: var(--muted); line-height: 1.2; margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
