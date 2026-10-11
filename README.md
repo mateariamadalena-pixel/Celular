@@ -106,6 +106,12 @@ nas últimas 12 horas, e na aba **Partidas** os últimos 10 que decolaram: núme
 matrícula, com a foto da aeronave ao lado (pela matrícula ou pelo transponder). Se o avião
 ainda estiver no mapa, "ver no mapa ›" leva até ele.
 
+O botão **🎧 Ouvir torre** abre a busca do [LiveATC](https://www.liveatc.net) para aquele aeroporto,
+onde voluntários transmitem o áudio do rádio entre pilotos e controladores. O áudio não toca dentro
+do app porque os termos do LiveATC não permitem; e no Brasil retransmitir comunicações de rádio
+destinadas a terceiros tem restrições legais, por isso o app não tem transmissão própria.
+Muitos aeroportos brasileiros não têm transmissão no LiveATC.
+
 Quando o AeroDataBox só tem o horário programado, o app tenta confirmar com o próprio radar:
 se ele viu o avião (pela matrícula ou transponder) baixo, descendo ou subindo, a até 8 km do
 aeroporto, mostra "pousou ~16:52 ✔ visto pelo radar". Isso fica guardado no aparelho por 24 horas
