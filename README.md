@@ -112,6 +112,10 @@ do app porque os termos do LiveATC não permitem; e no Brasil retransmitir comun
 destinadas a terceiros tem restrições legais, por isso o app não tem transmissão própria.
 Muitos aeroportos brasileiros não têm transmissão no LiveATC.
 
+Para aeroportos brasileiros há também **📋 Frequências**, que abre a página oficial do aeródromo no
+[AISWEB](https://aisweb.decea.mil.br) (DECEA), com as frequências de torre, solo e aproximação para
+quem quiser ouvir com um rádio scanner.
+
 Quando o AeroDataBox só tem o horário programado, o app tenta confirmar com o próprio radar:
 se ele viu o avião (pela matrícula ou transponder) baixo, descendo ou subindo, a até 8 km do
 aeroporto, mostra "pousou ~16:52 ✔ visto pelo radar". Isso fica guardado no aparelho por 24 horas
