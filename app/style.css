@@ -141,3 +141,9 @@ dialog button { background: var(--accent); border: 0; border-radius: 8px; paddin
 body.com-seguido .status, body.com-seguido .toast { top: 116px; }
 .btn-seguir { display: block; width: 100%; margin: 0 0 10px; background: #312e81; color: #fff; border: 0;
   border-radius: 8px; padding: 9px; font-size: 15px; font-weight: 600; }
+
+/* Ouvir torre */
+.btn-ouvir { display: block; text-align: center; background: #0f766e; color: #fff; border-radius: 8px;
+  padding: 9px; font-weight: 600; text-decoration: none; }
+.painel a.btn-ouvir { color: #fff; }
+.nota-ouvir { margin: 4px 0 10px; text-align: center; }

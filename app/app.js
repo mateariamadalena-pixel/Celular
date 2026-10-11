@@ -529,6 +529,13 @@ function htmlVoo(v, tipo, icao) {
 let abaAberta = 'chegadas';
 let aeroportoObj = null;
 
+// Áudio da torre: só um link para o LiveATC (os termos deles não permitem tocar as
+// transmissões dentro de outro app). Muitos aeroportos brasileiros não têm transmissão.
+function htmlOuvirTorre(a) {
+  return `<a class="btn-ouvir" href="https://www.liveatc.net/search/?icao=${encodeURIComponent(a.icao)}" target="_blank" rel="noopener">🎧 Ouvir torre (LiveATC) ↗</a>
+    <p class="nota nota-ouvir">Abre o LiveATC; nem todo aeroporto tem transmissão.</p>`;
+}
+
 function htmlAbas(tipo) {
   return `<div class="abas">${['chegadas', 'partidas'].map(t =>
     `<button data-aba="${t}"${t === tipo ? ' class="ativa"' : ''}>${t === 'chegadas' ? 'Chegadas' : 'Partidas'}</button>`).join('')}</div>`;
@@ -547,7 +554,7 @@ async function abrirAeroporto(a, tipo = 'chegadas') {
   $('pSeguir').hidden = true;
   const lista = $('pLista');
   lista.hidden = false;
-  lista.innerHTML = htmlAbas(tipo) + '<p class="nota">Buscando…</p>';
+  lista.innerHTML = htmlOuvirTorre(a) + htmlAbas(tipo) + '<p class="nota">Buscando…</p>';
   $('painel').classList.remove('oculto');
 
   const chave = `${a.icao}:${tipo}`;
@@ -560,7 +567,7 @@ async function abrirAeroporto(a, tipo = 'chegadas') {
     }
     if (!aindaAberto()) return;
     const voos = c.dados.voos || [];
-    lista.innerHTML = htmlAbas(tipo) + (voos.length
+    lista.innerHTML = htmlOuvirTorre(a) + htmlAbas(tipo) + (voos.length
       ? `<ol>${voos.map(v => htmlVoo(v, tipo, a.icao)).join('')}</ol><p class="nota">Horários locais do aeroporto · dados: AeroDataBox</p>`
       : `<p class="nota">Nenhum voo ${tipo === 'partidas' ? 'decolou daqui' : 'pousou aqui'} nas últimas 12 horas.</p>`);
     preencherMiniaturas(lista, a.icao);
@@ -570,7 +577,7 @@ async function abrirAeroporto(a, tipo = 'chegadas') {
       'so-na-vercel': 'As chegadas e partidas só funcionam na versão publicada na Vercel.',
       'sem-chave': 'Falta configurar a chave do AeroDataBox na Vercel (variável AERODATABOX_KEY).',
     }[e.message] || `Não foi possível buscar os voos (${e.message}).`;
-    lista.innerHTML = htmlAbas(tipo) + `<p class="nota">${escapar(msg)}</p>`;
+    lista.innerHTML = htmlOuvirTorre(a) + htmlAbas(tipo) + `<p class="nota">${escapar(msg)}</p>`;
   }
 }
 
